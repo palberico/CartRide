@@ -10,6 +10,7 @@ import {
   addDoc,
   query,
   where,
+  orderBy,
   onSnapshot,
   updateDoc,
   doc,
@@ -49,8 +50,11 @@ export default function RiderDashboard() {
   const { userProfile } = useAuth();
   const [pickup, setPickup] = useState(null);
   const [pickupAddress, setPickupAddress] = useState(null);
-  const [riderLocation, setRiderLocation] = useState(null);
+  const [destinationPin, setDestinationPin] = useState(null);
   const [destination, setDestination] = useState('');
+  const [mapMode, setMapMode] = useState('pickup'); // 'pickup' | 'destination'
+  const [commonLocations, setCommonLocations] = useState([]);
+  const [riderLocation, setRiderLocation] = useState(null);
   const [activeRide, setActiveRide] = useState(null);
   const [onlineDrivers, setOnlineDrivers] = useState([]);
   const [offlineAcceptingDrivers, setOfflineAcceptingDrivers] = useState([]);
@@ -60,6 +64,8 @@ export default function RiderDashboard() {
   const [mapInstance, setMapInstance] = useState(null);
   const mapRef = useRef(null);
   const activeRideRef = useRef(null);
+  const directionsRendererRef = useRef(null);
+  const mapModeRef = useRef('pickup');
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const { isLoaded } = useJsApiLoader({ googleMapsApiKey: apiKey || '' });
@@ -87,8 +93,40 @@ export default function RiderDashboard() {
     return unsub;
   }, [userProfile?.uid]);
 
-  // Keep a stable ref so the map click handler never goes stale
+  // Keep stable refs so map click handler never goes stale
   useEffect(() => { activeRideRef.current = activeRide; }, [activeRide]);
+  useEffect(() => { mapModeRef.current = mapMode; }, [mapMode]);
+
+  // Fetch common locations for the destination dropdown
+  useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, 'commonLocations'), orderBy('name')),
+      (snap) => setCommonLocations(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+    return unsub;
+  }, []);
+
+  // Draw / clear route whenever pickup + destinationPin both exist
+  useEffect(() => {
+    const renderer = directionsRendererRef.current;
+    if (!renderer) return;
+    if (!pickup || !destinationPin) {
+      renderer.setDirections({ routes: [] });
+      return;
+    }
+    const service = new window.google.maps.DirectionsService();
+    service.route({
+      origin: pickup,
+      destination: destinationPin,
+      travelMode: window.google.maps.TravelMode.DRIVING,
+    }, (result, status) => {
+      if (status === 'OK') {
+        renderer.setDirections(result);
+      } else {
+        renderer.setDirections({ routes: [] });
+      }
+    });
+  }, [pickup, destinationPin]);
 
   // Center on GPS location once it resolves
   useEffect(() => {
@@ -176,6 +214,7 @@ export default function RiderDashboard() {
         pickupLocation: pickup,
         pickupAddress: pickupAddress || null,
         dropoffAddress: destination.trim(),
+        dropoffLocation: destinationPin || null,
         price: RIDE_PRICE,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -244,22 +283,17 @@ export default function RiderDashboard() {
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <div className="map-hint">
-                      👆 Click the map to set your pickup spot
+                    <div className={`map-hint ${mapMode === 'pickup' ? '' : ''}`}
+                      style={{ background: mapMode === 'destination' ? '#fff3e0' : undefined, color: mapMode === 'destination' ? '#b45309' : undefined }}>
+                      {mapMode === 'destination' ? '👇 Now click the map to set your destination' : '👆 Click the map to set your pickup spot'}
                     </div>
-                    {/* OR badge — negative margin pulls it to overlap both elements */}
-                    <div style={{
-                      display: 'flex', justifyContent: 'center',
-                      margin: '-10px 0', position: 'relative', zIndex: 1,
-                    }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', margin: '-10px 0', position: 'relative', zIndex: 1 }}>
                       <div style={{
                         width: 32, height: 32, borderRadius: '50%',
-                        background: 'var(--white)',
-                        border: '2px solid var(--gray-200)',
+                        background: 'var(--white)', border: '2px solid var(--gray-200)',
                         boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, fontWeight: 700, color: 'var(--gray-600)',
-                        userSelect: 'none',
+                        fontSize: 11, fontWeight: 700, color: 'var(--gray-600)', userSelect: 'none',
                       }}>or</div>
                     </div>
                     <button className="btn btn-secondary btn-sm" onClick={useMyLocation}>
@@ -269,14 +303,58 @@ export default function RiderDashboard() {
                 )}
               </div>
 
+              {/* Destination */}
               <div className="form-group mb-8">
                 <label>Destination</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Daybreak Lake, Bees stadium…"
-                  value={destination}
-                  onChange={e => setDestination(e.target.value)}
-                />
+
+                {/* Common locations dropdown */}
+                {commonLocations.length > 0 && (
+                  <select
+                    style={{ width: '100%', marginBottom: 8, padding: '11px 14px', border: '1.5px solid var(--gray-200)', borderRadius: 'var(--radius-sm)', fontSize: 15, background: 'white', color: 'var(--gray-800)' }}
+                    value=""
+                    onChange={e => {
+                      const loc = commonLocations.find(l => l.id === e.target.value);
+                      if (!loc) return;
+                      setDestination(loc.name);
+                      setDestinationPin(null);
+                      // Geocode the address to get a pin + enable routing
+                      reverseGeocodeAddress(loc.address).then(latLng => {
+                        if (latLng) setDestinationPin(latLng);
+                      });
+                    }}
+                  >
+                    <option value="">📍 Quick pick a location…</option>
+                    {commonLocations.map(loc => (
+                      <option key={loc.id} value={loc.id}>{loc.name}</option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Destination pin display or text input */}
+                {destinationPin ? (
+                  <div className="pickup-display">
+                    <span>🏁 {destination || `${destinationPin.lat.toFixed(5)}, ${destinationPin.lng.toFixed(5)}`}</span>
+                    <button onClick={() => { setDestinationPin(null); setDestination(''); setMapMode('destination'); }} title="Clear destination">✕</button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      type="text"
+                      placeholder="Type address or click map…"
+                      value={destination}
+                      onChange={e => { setDestination(e.target.value); setDestinationPin(null); }}
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                      onClick={() => setMapMode(mapMode === 'destination' ? 'pickup' : 'destination')}
+                      title="Click map to set destination"
+                    >
+                      {mapMode === 'destination' ? '✕ Cancel' : '🗺 Pin'}
+                    </button>
+                  </div>
+                )}
               </div>
 
               <button
@@ -349,7 +427,12 @@ export default function RiderDashboard() {
             onLoad={(map) => {
               mapRef.current = map;
               setMapInstance(map);
-              // Attach click directly to the map instance — bypasses the React wrapper
+              directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
+                suppressMarkers: true,
+                polylineOptions: { strokeColor: '#2d6a4f', strokeWeight: 5, strokeOpacity: 0.75 },
+                map,
+              });
+              // Attach click directly — reads mode + ride from refs so listener is never stale
               map.addListener('click', (e) => {
                 const ride = activeRideRef.current;
                 if (ride && ride.status !== 'completed') return;
@@ -358,9 +441,18 @@ export default function RiderDashboard() {
                   toast.error('That spot is outside the Daybreak service area.');
                   return;
                 }
-                setPickup(loc);
-                setPickupAddress(null);
-                reverseGeocode(loc).then(addr => setPickupAddress(addr)).catch(() => {});
+                const mode = mapModeRef.current;
+                if (mode === 'destination') {
+                  setDestinationPin(loc);
+                  setDestination('');
+                  reverseGeocode(loc).then(addr => { if (addr) setDestination(addr); }).catch(() => {});
+                  setMapMode('pickup');
+                } else {
+                  setPickup(loc);
+                  setPickupAddress(null);
+                  reverseGeocode(loc).then(addr => setPickupAddress(addr)).catch(() => {});
+                  setMapMode('destination');
+                }
               });
             }}
           >
@@ -373,6 +465,19 @@ export default function RiderDashboard() {
                   url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(pickupSvg),
                   scaledSize: { width: 36, height: 36 },
                   anchor: { x: 18, y: 36 },
+                }}
+              />
+            )}
+
+            {/* Destination pin */}
+            {destinationPin && (
+              <Marker
+                position={destinationPin}
+                title="Destination"
+                icon={{
+                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(destSvg),
+                  scaledSize: { width: 36, height: 44 },
+                  anchor: { x: 18, y: 44 },
                 }}
               />
             )}
@@ -517,12 +622,29 @@ function CompletedRidePanel({ ride, onDone }) {
   );
 }
 
+// Lat/lng → address string
 async function reverseGeocode(latLng) {
   if (!window.google?.maps?.Geocoder) return null;
   const geocoder = new window.google.maps.Geocoder();
   return new Promise((resolve) => {
     geocoder.geocode({ location: latLng }, (results, status) => {
       resolve(status === 'OK' && results[0] ? results[0].formatted_address : null);
+    });
+  });
+}
+
+// Address string → {lat, lng}
+async function reverseGeocodeAddress(address) {
+  if (!window.google?.maps?.Geocoder) return null;
+  const geocoder = new window.google.maps.Geocoder();
+  return new Promise((resolve) => {
+    geocoder.geocode({ address }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
+        resolve({ lat: loc.lat(), lng: loc.lng() });
+      } else {
+        resolve(null);
+      }
     });
   });
 }
@@ -542,5 +664,8 @@ function isInsideServiceArea(point, polygon) {
 }
 
 const pickupSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44"><path d="M18 0C8.059 0 0 8.059 0 18c0 12.255 16.122 24.66 17.04 25.356a1.5 1.5 0 0 0 1.92 0C19.878 42.66 36 30.255 36 18 36 8.059 27.941 0 18 0z" fill="#2d6a4f"/><circle cx="18" cy="18" r="7" fill="white"/></svg>`;
+
+// Red destination pin
+const destSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44"><path d="M18 0C8.059 0 0 8.059 0 18c0 12.255 16.122 24.66 17.04 25.356a1.5 1.5 0 0 0 1.92 0C19.878 42.66 36 30.255 36 18 36 8.059 27.941 0 18 0z" fill="#e63946"/><circle cx="18" cy="18" r="7" fill="white"/></svg>`;
 
 const cartSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><circle cx="20" cy="20" r="18" fill="#40916c" stroke="white" stroke-width="2"/><text x="20" y="26" font-size="18" text-anchor="middle" fill="white">🛺</text></svg>`;

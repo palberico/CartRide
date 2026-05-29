@@ -32,6 +32,12 @@ service cloud.firestore {
       );
     }
 
+    // Common locations — anyone logged in can read; only admin can write
+    match /commonLocations/{locId} {
+      allow read: if isAuth();
+      allow write: if isAuth() && role() == 'admin';
+    }
+
     // Rides — riders create; assigned driver + rider read; driver can update status
     match /rides/{rideId} {
       allow create: if isAuth() && role() == 'rider'
