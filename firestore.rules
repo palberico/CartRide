@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: is the requester logged in?
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // Helper: get the caller's role from their user doc
+    function role() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Users — can read own doc; only backend (admin SDK) writes role
+    match /users/{uid} {
+      allow read: if isAuth() && request.auth.uid == uid;
+      allow create: if isAuth() && request.auth.uid == uid;
+      allow update: if isAuth() && request.auth.uid == uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
+    }
+
+    // Drivers — drivers read/write own doc; riders read all (to see map); admin reads/writes all
+    match /drivers/{uid} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.auth.uid == uid;
+      // Drivers can update their own location/online status but NOT approved field
+      allow update: if isAuth() && (
+        (request.auth.uid == uid &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['approved']))
+        || role() == 'admin'
+      );
+    }
+
+    // Rides — riders create; assigned driver + rider read; driver can update status
+    match /rides/{rideId} {
+      allow create: if isAuth() && role() == 'rider'
+        && request.resource.data.riderId == request.auth.uid;
+
+      allow read: if isAuth() && (
+        resource.data.riderId == request.auth.uid ||
+        resource.data.driverId == request.auth.uid ||
+        role() == 'driver' ||   // drivers need to see pending rides
+        role() == 'admin'
+      );
+
+      allow update: if isAuth() && (
+        resource.data.riderId == request.auth.uid ||   // rider can cancel
+        role() == 'driver' ||
+        role() == 'admin'
+      );
+    }
+  }
+}
