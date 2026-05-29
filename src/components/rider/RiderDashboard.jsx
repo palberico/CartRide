@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   GoogleMap,
   useJsApiLoader,
   Marker,
   InfoWindow,
-  OverlayView,
 } from '@react-google-maps/api';
 import {
   collection,
@@ -60,6 +59,7 @@ export default function RiderDashboard() {
   const [mapCenter, setMapCenter] = useState(DAYBREAK_CENTER);
   const [mapInstance, setMapInstance] = useState(null);
   const mapRef = useRef(null);
+  const activeRideRef = useRef(null);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const { isLoaded } = useJsApiLoader({ googleMapsApiKey: apiKey || '' });
@@ -86,6 +86,9 @@ export default function RiderDashboard() {
     });
     return unsub;
   }, [userProfile?.uid]);
+
+  // Keep a stable ref so the map click handler never goes stale
+  useEffect(() => { activeRideRef.current = activeRide; }, [activeRide]);
 
   // Center on GPS location once it resolves
   useEffect(() => {
@@ -130,19 +133,12 @@ export default function RiderDashboard() {
       strokeWeight: 2.5,
       fillColor: '#2d6a4f',
       fillOpacity: 0.07,
+      clickable: false,
       map: mapInstance,
     });
     return () => polygon.setMap(null);
   }, [mapInstance]);
 
-  const onMapClick = useCallback(async (e) => {
-    if (activeRide && activeRide.status !== 'completed') return;
-    const loc = { lat: e.latLng.lat(), lng: e.latLng.lng() };
-    setPickup(loc);
-    setPickupAddress(null);
-    const addr = await reverseGeocode(loc);
-    setPickupAddress(addr);
-  }, [activeRide]);
 
   async function useMyLocation() {
     if (!navigator.geolocation) return toast.error('Geolocation not supported by your browser.');
@@ -152,6 +148,10 @@ export default function RiderDashboard() {
         setRiderLocation(loc);
         setMapCenter(loc);
         mapRef.current?.panTo(loc);
+        if (!isInsideServiceArea(loc, DAYBREAK_BOUNDARY)) {
+          toast.error('Your current location is outside the Daybreak service area.');
+          return;
+        }
         setPickup(loc);
         setPickupAddress(null);
         const addr = await reverseGeocode(loc);
@@ -243,9 +243,24 @@ export default function RiderDashboard() {
                     <button onClick={() => { setPickup(null); setPickupAddress(null); }} title="Clear pickup">✕</button>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <div className="map-hint">
                       👆 Click the map to set your pickup spot
+                    </div>
+                    {/* OR badge — negative margin pulls it to overlap both elements */}
+                    <div style={{
+                      display: 'flex', justifyContent: 'center',
+                      margin: '-10px 0', position: 'relative', zIndex: 1,
+                    }}>
+                      <div style={{
+                        width: 32, height: 32, borderRadius: '50%',
+                        background: 'var(--white)',
+                        border: '2px solid var(--gray-200)',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 700, color: 'var(--gray-600)',
+                        userSelect: 'none',
+                      }}>or</div>
                     </div>
                     <button className="btn btn-secondary btn-sm" onClick={useMyLocation}>
                       📍 Use my location
@@ -331,9 +346,50 @@ export default function RiderDashboard() {
             center={mapCenter}
             zoom={14}
             options={MAP_OPTIONS}
-            onClick={onMapClick}
-            onLoad={(map) => { mapRef.current = map; setMapInstance(map); }}
+            onLoad={(map) => {
+              mapRef.current = map;
+              setMapInstance(map);
+              // Attach click directly to the map instance — bypasses the React wrapper
+              map.addListener('click', (e) => {
+                const ride = activeRideRef.current;
+                if (ride && ride.status !== 'completed') return;
+                const loc = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+                if (!isInsideServiceArea(loc, DAYBREAK_BOUNDARY)) {
+                  toast.error('That spot is outside the Daybreak service area.');
+                  return;
+                }
+                setPickup(loc);
+                setPickupAddress(null);
+                reverseGeocode(loc).then(addr => setPickupAddress(addr)).catch(() => {});
+              });
+            }}
           >
+            {/* Pickup pin */}
+            {pickup && (
+              <Marker
+                position={pickup}
+                title="Your pickup"
+                icon={{
+                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(pickupSvg),
+                  scaledSize: { width: 36, height: 36 },
+                  anchor: { x: 18, y: 36 },
+                }}
+              />
+            )}
+
+            {/* Active ride pickup pin (no local pickup state yet) */}
+            {hasActiveRide && activeRide.pickupLocation && !pickup && (
+              <Marker
+                position={activeRide.pickupLocation}
+                title="Your pickup"
+                icon={{
+                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(pickupSvg),
+                  scaledSize: { width: 36, height: 36 },
+                  anchor: { x: 18, y: 36 },
+                }}
+              />
+            )}
+
             {onlineDrivers.map(driver => driver.location && (
               <Marker
                 key={driver.id}
@@ -361,18 +417,6 @@ export default function RiderDashboard() {
                   <p style={{ fontSize: 12, color: '#2d6a4f', marginTop: 2 }}>🟢 Available</p>
                 </div>
               </InfoWindow>
-            )}
-
-            {(pickup || (hasActiveRide && activeRide.pickupLocation)) && (
-              <OverlayView
-                position={pickup || activeRide.pickupLocation}
-                mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-              >
-                <div style={{ transform: 'translate(-50%, -50%)', position: 'relative', width: 40, height: 40, pointerEvents: 'none' }}>
-                  <div className="location-pulse-ring" />
-                  <div className="location-dot" />
-                </div>
-              </OverlayView>
             )}
 
           </GoogleMap>
@@ -482,5 +526,21 @@ async function reverseGeocode(latLng) {
     });
   });
 }
+
+// Ray casting — returns true if point {lat,lng} is inside the polygon array
+function isInsideServiceArea(point, polygon) {
+  const { lat: px, lng: py } = point;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const { lat: xi, lng: yi } = polygon[i];
+    const { lat: xj, lng: yj } = polygon[j];
+    const intersects = (yi > py) !== (yj > py) &&
+      px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+const pickupSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44"><path d="M18 0C8.059 0 0 8.059 0 18c0 12.255 16.122 24.66 17.04 25.356a1.5 1.5 0 0 0 1.92 0C19.878 42.66 36 30.255 36 18 36 8.059 27.941 0 18 0z" fill="#2d6a4f"/><circle cx="18" cy="18" r="7" fill="white"/></svg>`;
 
 const cartSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><circle cx="20" cy="20" r="18" fill="#40916c" stroke="white" stroke-width="2"/><text x="20" y="26" font-size="18" text-anchor="middle" fill="white">🛺</text></svg>`;
