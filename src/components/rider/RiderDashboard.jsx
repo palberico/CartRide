@@ -3,7 +3,6 @@ import {
   GoogleMap,
   useJsApiLoader,
   Marker,
-  InfoWindow,
 } from '@react-google-maps/api';
 import {
   collection,
@@ -58,7 +57,6 @@ export default function RiderDashboard() {
   const [activeRide, setActiveRide] = useState(null);
   const [onlineDrivers, setOnlineDrivers] = useState([]);
   const [offlineAcceptingDrivers, setOfflineAcceptingDrivers] = useState([]);
-  const [selectedDriver, setSelectedDriver] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [mapCenter, setMapCenter] = useState(DAYBREAK_CENTER);
   const [mapInstance, setMapInstance] = useState(null);
@@ -76,14 +74,17 @@ export default function RiderDashboard() {
     const q = query(
       collection(db, 'rides'),
       where('riderId', '==', userProfile.uid),
-      where('status', 'in', ['pending', 'accepted', 'completed']),
+      where('status', 'in', ['pending', 'accepted', 'active', 'ending', 'completed']),
       limit(1)
     );
     const unsub = onSnapshot(q, (snap) => {
       if (!snap.empty) {
         const ride = { id: snap.docs[0].id, ...snap.docs[0].data() };
+        if (ride.status === 'ending' && activeRide?.status === 'active') {
+          toast.success('Ride ended! Please pay your driver.');
+        }
         if (ride.status === 'completed' && activeRide?.status !== 'completed') {
-          toast.success('Your ride is complete! Please pay your driver.');
+          toast.success('Thanks for riding with CartRide!');
         }
         setActiveRide(ride);
       } else {
@@ -242,7 +243,7 @@ export default function RiderDashboard() {
     }
   }
 
-  // Permanently archive the completed ride so it doesn't reappear on refresh
+  // Permanently archive the completed ride and reset all local state
   async function dismissRide() {
     if (!activeRide) return;
     try {
@@ -251,12 +252,19 @@ export default function RiderDashboard() {
         updatedAt: serverTimestamp(),
       });
     } catch {
-      // Fail silently — the query will exclude it once status updates
+      // Ignore write errors — still reset local state below
     }
+    setActiveRide(null);
+    setPickup(null);
+    setPickupAddress(null);
+    setDestination('');
+    setDestinationPin(null);
+    setMapMode('pickup');
   }
 
-  const hasActiveRide = activeRide && activeRide.status !== 'completed';
-  const showRequestForm = !hasActiveRide && activeRide?.status !== 'completed';
+  const isPaymentStatus = ['ending', 'completed'].includes(activeRide?.status);
+  const hasActiveRide = activeRide && !isPaymentStatus;
+  const showRequestForm = !hasActiveRide && !isPaymentStatus;
 
   return (
     <div className="dashboard has-sidebar">
@@ -269,7 +277,7 @@ export default function RiderDashboard() {
         <div className="sidebar-body">
           {hasActiveRide && <ActiveRidePanel ride={activeRide} onCancel={cancelRide} />}
 
-          {activeRide?.status === 'completed' && (
+          {isPaymentStatus && (
             <CompletedRidePanel ride={activeRide} onDone={dismissRide} />
           )}
 
@@ -435,7 +443,7 @@ export default function RiderDashboard() {
               // Attach click directly — reads mode + ride from refs so listener is never stale
               map.addListener('click', (e) => {
                 const ride = activeRideRef.current;
-                if (ride && ride.status !== 'completed') return;
+                if (ride && !['ending', 'completed', 'archived'].includes(ride.status)) return;
                 const loc = { lat: e.latLng.lat(), lng: e.latLng.lng() };
                 if (!isInsideServiceArea(loc, DAYBREAK_BOUNDARY)) {
                   toast.error('That spot is outside the Daybreak service area.');
@@ -495,34 +503,6 @@ export default function RiderDashboard() {
               />
             )}
 
-            {onlineDrivers.map(driver => driver.location && (
-              <Marker
-                key={driver.id}
-                position={driver.location}
-                title={driver.name}
-                icon={{
-                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(cartSvg),
-                  scaledSize: { width: 40, height: 40 },
-                  anchor: { x: 20, y: 20 },
-                }}
-                onClick={() => setSelectedDriver(selectedDriver?.id === driver.id ? null : driver)}
-              />
-            ))}
-
-            {selectedDriver && selectedDriver.location && (
-              <InfoWindow
-                position={selectedDriver.location}
-                onCloseClick={() => setSelectedDriver(null)}
-              >
-                <div style={{ padding: '4px 8px', minWidth: 120 }}>
-                  <strong>{selectedDriver.name}</strong>
-                  <p style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
-                    {selectedDriver.cartDescription || 'Golf cart'}
-                  </p>
-                  <p style={{ fontSize: 12, color: '#2d6a4f', marginTop: 2 }}>🟢 Available</p>
-                </div>
-              </InfoWindow>
-            )}
 
           </GoogleMap>
         ) : (
@@ -547,6 +527,12 @@ function ActiveRidePanel({ ride, onCancel }) {
       icon: '🛺',
       title: 'Driver on the way!',
       desc: `${ride.driverName || 'Your driver'} is heading to your pickup spot.`,
+      showCancel: false,
+    },
+    active: {
+      icon: '🟢',
+      title: 'Ride in progress!',
+      desc: `You're on your way to ${ride.dropoffAddress || 'your destination'}.`,
       showCancel: false,
     },
   };
@@ -597,19 +583,35 @@ function CompletedRidePanel({ ride, onDone }) {
       <div className="payment-card">
         <p className="payment-label">Pay your driver</p>
         <p className="amount">${ride.price}</p>
+
+        {/* Venmo QR code — scan to pay */}
+        {ride.driverVenmoQrUrl && (
+          <div style={{ marginTop: 16 }}>
+            <p className="payment-label" style={{ marginBottom: 10 }}>Scan to pay with Venmo</p>
+            <img
+              src={ride.driverVenmoQrUrl}
+              alt="Venmo QR code"
+              style={{
+                width: 160, height: 160, objectFit: 'contain',
+                background: '#fff', borderRadius: 10, padding: 8, display: 'block', margin: '0 auto',
+              }}
+            />
+          </div>
+        )}
+
         {ride.driverVenmo && (
-          <div>
-            <p className="payment-label" style={{ marginTop: 12 }}>Venmo</p>
+          <div style={{ marginTop: 12 }}>
+            <p className="payment-label">Venmo handle</p>
             <span className="venmo-handle">{ride.driverVenmo}</span>
           </div>
         )}
         {ride.driverPaypal && (
-          <div>
-            <p className="payment-label" style={{ marginTop: 8 }}>PayPal</p>
+          <div style={{ marginTop: 8 }}>
+            <p className="payment-label">PayPal</p>
             <span className="venmo-handle">{ride.driverPaypal}</span>
           </div>
         )}
-        {!ride.driverVenmo && !ride.driverPaypal && (
+        {!ride.driverVenmo && !ride.driverPaypal && !ride.driverVenmoQrUrl && (
           <p style={{ marginTop: 12, fontSize: 14, opacity: 0.9 }}>
             Ask your driver for their payment handle.
           </p>
@@ -668,4 +670,3 @@ const pickupSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" w
 // Red destination pin
 const destSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44"><path d="M18 0C8.059 0 0 8.059 0 18c0 12.255 16.122 24.66 17.04 25.356a1.5 1.5 0 0 0 1.92 0C19.878 42.66 36 30.255 36 18 36 8.059 27.941 0 18 0z" fill="#e63946"/><circle cx="18" cy="18" r="7" fill="white"/></svg>`;
 
-const cartSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><circle cx="20" cy="20" r="18" fill="#40916c" stroke="white" stroke-width="2"/><text x="20" y="26" font-size="18" text-anchor="middle" fill="white">🛺</text></svg>`;

@@ -4,9 +4,11 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  deleteUser,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '../firebase/config';
+import { doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, deleteObject } from 'firebase/storage';
+import { auth, db, storage } from '../firebase/config';
 
 const AuthContext = createContext(null);
 
@@ -55,6 +57,36 @@ export function AuthProvider({ children }) {
     return signOut(auth);
   }
 
+  async function refreshProfile() {
+    if (!auth.currentUser) return;
+    const snap = await getDoc(doc(db, 'users', auth.currentUser.uid));
+    if (snap.exists()) {
+      setUserProfile({ uid: auth.currentUser.uid, ...snap.data() });
+    }
+  }
+
+  async function deleteAccount() {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    const uid = currentUser.uid;
+    const role = userProfile?.role;
+
+    // Remove Storage files (ignore errors — files may not exist)
+    await Promise.allSettled([
+      deleteObject(ref(storage, `avatars/${uid}`)),
+      deleteObject(ref(storage, `venmo-qr/${uid}`)),
+    ]);
+
+    // Delete Firestore documents
+    if (role === 'driver') {
+      await deleteDoc(doc(db, 'drivers', uid));
+    }
+    await deleteDoc(doc(db, 'users', uid));
+
+    // Delete the Firebase Auth account (must be last)
+    await deleteUser(currentUser);
+  }
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -72,7 +104,7 @@ export function AuthProvider({ children }) {
     return unsubscribe;
   }, []);
 
-  const value = { user, userProfile, loading, register, login, logout };
+  const value = { user, userProfile, loading, register, login, logout, refreshProfile, deleteAccount };
 
   return (
     <AuthContext.Provider value={value}>

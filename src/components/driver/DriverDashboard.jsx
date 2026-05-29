@@ -53,6 +53,7 @@ export default function DriverDashboard() {
   const watchIdRef = useRef(null);
   const mapRef = useRef(null);
   const [mapInstance, setMapInstance] = useState(null);
+  const directionsRendererRef = useRef(null);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const { isLoaded } = useJsApiLoader({ googleMapsApiKey: apiKey || '' });
@@ -92,7 +93,7 @@ export default function DriverDashboard() {
     const q = query(
       collection(db, 'rides'),
       where('driverId', '==', userProfile.uid),
-      where('status', 'in', ['accepted']),
+      where('status', 'in', ['accepted', 'active', 'ending']),
       limit(1)
     );
     const unsub = onSnapshot(q, (snap) => {
@@ -172,12 +173,37 @@ export default function DriverDashboard() {
         driverName: userProfile.name,
         driverVenmo: driverData.venmoHandle || '',
         driverPaypal: driverData.paypalHandle || '',
+        driverVenmoQrUrl: driverData.venmoQrUrl || '',
         status: 'accepted',
         updatedAt: serverTimestamp(),
       });
       toast.success(`Accepted ride for ${ride.riderName}!`);
     } catch {
       toast.error('Could not accept this ride. It may have been taken.');
+    }
+  }
+
+  async function startRide() {
+    if (!activeRide) return;
+    try {
+      await updateDoc(doc(db, 'rides', activeRide.id), {
+        status: 'active',
+        updatedAt: serverTimestamp(),
+      });
+    } catch {
+      toast.error('Could not start the ride.');
+    }
+  }
+
+  async function endRide() {
+    if (!activeRide) return;
+    try {
+      await updateDoc(doc(db, 'rides', activeRide.id), {
+        status: 'ending',
+        updatedAt: serverTimestamp(),
+      });
+    } catch {
+      toast.error('Could not end the ride.');
     }
   }
 
@@ -206,10 +232,45 @@ export default function DriverDashboard() {
       strokeWeight: 2.5,
       fillColor: '#2d6a4f',
       fillOpacity: 0.07,
+      clickable: false,
       map: mapInstance,
     });
-    return () => polygon.setMap(null);
+    // Init DirectionsRenderer once the map is ready
+    directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
+      suppressMarkers: true,
+      polylineOptions: { strokeColor: '#2d6a4f', strokeWeight: 5, strokeOpacity: 0.75 },
+      map: mapInstance,
+    });
+    return () => { polygon.setMap(null); };
   }, [mapInstance]);
+
+  // Draw route and fit bounds when an active ride is present
+  useEffect(() => {
+    const renderer = directionsRendererRef.current;
+    if (!renderer) return;
+    if (!activeRide?.pickupLocation) {
+      renderer.setDirections({ routes: [] });
+      return;
+    }
+    const destination = activeRide.dropoffLocation || activeRide.dropoffAddress;
+    if (!destination) return;
+    new window.google.maps.DirectionsService().route({
+      origin: activeRide.pickupLocation,
+      destination,
+      travelMode: window.google.maps.TravelMode.DRIVING,
+    }, (result, status) => {
+      if (status === 'OK') {
+        renderer.setDirections(result);
+        // Fit map to show full route
+        const bounds = new window.google.maps.LatLngBounds();
+        result.routes[0].overview_path.forEach(p => bounds.extend(p));
+        if (myLocation) bounds.extend(myLocation);
+        mapRef.current?.fitBounds(bounds, 60);
+      } else {
+        renderer.setDirections({ routes: [] });
+      }
+    });
+  }, [activeRide?.id, mapInstance]);
 
   if (!driverDoc) {
     return (
@@ -310,10 +371,7 @@ export default function DriverDashboard() {
                 </div>
                 <div className="ride-detail-row">
                   <strong>Pickup:</strong>
-                  <span>
-                    {activeRide.pickupLocation?.lat?.toFixed(5)},{' '}
-                    {activeRide.pickupLocation?.lng?.toFixed(5)}
-                  </span>
+                  <span>{activeRide.pickupAddress || `${activeRide.pickupLocation?.lat?.toFixed(5)}, ${activeRide.pickupLocation?.lng?.toFixed(5)}`}</span>
                 </div>
                 <div className="ride-detail-row">
                   <strong>Destination:</strong>
@@ -323,10 +381,46 @@ export default function DriverDashboard() {
                   <strong>Collect:</strong>
                   <span>${activeRide.price} via Venmo/PayPal/cash</span>
                 </div>
+                {activeRide.status === 'ending' && (
+                  <div style={{ margin: '12px 0 8px', textAlign: 'center' }}>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--green-dark)', marginBottom: 8 }}>
+                      Show your rider to pay
+                    </p>
+                    {driverDoc.venmoQrUrl ? (
+                      <img
+                        src={driverDoc.venmoQrUrl}
+                        alt="Venmo QR"
+                        style={{
+                          width: '100%', maxWidth: 220, aspectRatio: '1',
+                          objectFit: 'contain', borderRadius: 10,
+                          border: '1.5px solid var(--gray-200)', background: '#fff',
+                          padding: 8, display: 'block', margin: '0 auto',
+                        }}
+                      />
+                    ) : (
+                      <div style={{ fontSize: 13, color: 'var(--gray-600)', padding: '8px 0' }}>
+                        {driverDoc.venmoHandle && <div>Venmo: <strong>{driverDoc.venmoHandle}</strong></div>}
+                        {driverDoc.paypalHandle && <div>PayPal: <strong>{driverDoc.paypalHandle}</strong></div>}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="ride-actions">
-                  <button className="btn btn-success" onClick={completeRide}>
-                    ✓ Mark as complete
-                  </button>
+                  {activeRide.status === 'accepted' && (
+                    <button className="btn btn-primary" onClick={startRide}>
+                      ▶ Start ride
+                    </button>
+                  )}
+                  {activeRide.status === 'active' && (
+                    <button className="btn btn-warning" onClick={endRide} style={{ background: '#f4a261', color: '#fff' }}>
+                      🏁 End ride
+                    </button>
+                  )}
+                  {activeRide.status === 'ending' && (
+                    <button className="btn btn-success" onClick={completeRide}>
+                      ✓ Mark as complete
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -396,15 +490,28 @@ export default function DriverDashboard() {
               />
             )}
 
-            {/* Rider pickup location for active ride */}
+            {/* Rider pickup pin */}
             {activeRide?.pickupLocation && (
               <Marker
                 position={activeRide.pickupLocation}
                 title={`${activeRide.riderName}'s pickup`}
                 icon={{
                   url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(pickupSvg),
-                  scaledSize: { width: 36, height: 36 },
-                  anchor: { x: 18, y: 36 },
+                  scaledSize: { width: 36, height: 44 },
+                  anchor: { x: 18, y: 44 },
+                }}
+              />
+            )}
+
+            {/* Destination pin */}
+            {activeRide?.dropoffLocation && (
+              <Marker
+                position={activeRide.dropoffLocation}
+                title={activeRide.dropoffAddress || 'Destination'}
+                icon={{
+                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(destSvg),
+                  scaledSize: { width: 36, height: 44 },
+                  anchor: { x: 18, y: 44 },
                 }}
               />
             )}
@@ -434,10 +541,7 @@ function RideRequestCard({ ride, onAccept }) {
       <h3>🙋 {ride.riderName}</h3>
       <div className="ride-detail-row">
         <strong>Pickup:</strong>
-        <span>
-          {ride.pickupLocation?.lat?.toFixed(5)},{' '}
-          {ride.pickupLocation?.lng?.toFixed(5)}
-        </span>
+        <span>{ride.pickupAddress || `${ride.pickupLocation?.lat?.toFixed(5)}, ${ride.pickupLocation?.lng?.toFixed(5)}`}</span>
       </div>
       <div className="ride-detail-row">
         <strong>To:</strong>
@@ -458,4 +562,8 @@ function RideRequestCard({ ride, onAccept }) {
 
 const youSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><circle cx="20" cy="20" r="18" fill="#1b4332" stroke="white" stroke-width="2"/><text x="20" y="26" font-size="18" text-anchor="middle" fill="white">🛺</text></svg>`;
 
-const pickupSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="10" fill="#e63946" stroke="white" stroke-width="3"/><circle cx="18" cy="18" r="4" fill="white"/></svg>`;
+// Green teardrop — rider pickup
+const pickupSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44"><path d="M18 0C8.059 0 0 8.059 0 18c0 12.255 16.122 24.66 17.04 25.356a1.5 1.5 0 0 0 1.92 0C19.878 42.66 36 30.255 36 18 36 8.059 27.941 0 18 0z" fill="#2d6a4f"/><circle cx="18" cy="18" r="7" fill="white"/></svg>`;
+
+// Red teardrop — destination
+const destSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44"><path d="M18 0C8.059 0 0 8.059 0 18c0 12.255 16.122 24.66 17.04 25.356a1.5 1.5 0 0 0 1.92 0C19.878 42.66 36 30.255 36 18 36 8.059 27.941 0 18 0z" fill="#e63946"/><circle cx="18" cy="18" r="7" fill="white"/></svg>`;
