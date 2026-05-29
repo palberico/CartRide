@@ -5,7 +5,6 @@ import {
   Marker,
   InfoWindow,
   OverlayView,
-  Polygon,
 } from '@react-google-maps/api';
 import {
   collection,
@@ -22,7 +21,7 @@ import { db } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
-const DAYBREAK_CENTER = { lat: 40.4933, lng: -112.0273 };
+const DAYBREAK_CENTER = { lat: 40.5515, lng: -112.0245 };
 
 const DAYBREAK_BOUNDARY = [
   { lat: 40.565944, lng: -112.015250 },
@@ -59,6 +58,7 @@ export default function RiderDashboard() {
   const [selectedDriver, setSelectedDriver] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [mapCenter, setMapCenter] = useState(DAYBREAK_CENTER);
+  const [mapInstance, setMapInstance] = useState(null);
   const mapRef = useRef(null);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
@@ -119,6 +119,21 @@ export default function RiderDashboard() {
     });
     return unsub;
   }, []);
+
+  // Draw the Daybreak boundary polygon directly on the map instance
+  useEffect(() => {
+    if (!mapInstance) return;
+    const polygon = new window.google.maps.Polygon({
+      paths: DAYBREAK_BOUNDARY,
+      strokeColor: '#2d6a4f',
+      strokeOpacity: 0.85,
+      strokeWeight: 2.5,
+      fillColor: '#2d6a4f',
+      fillOpacity: 0.07,
+      map: mapInstance,
+    });
+    return () => polygon.setMap(null);
+  }, [mapInstance]);
 
   const onMapClick = useCallback(async (e) => {
     if (activeRide && activeRide.status !== 'completed') return;
@@ -317,7 +332,7 @@ export default function RiderDashboard() {
             zoom={14}
             options={MAP_OPTIONS}
             onClick={onMapClick}
-            onLoad={(map) => { mapRef.current = map; }}
+            onLoad={(map) => { mapRef.current = map; setMapInstance(map); }}
           >
             {onlineDrivers.map(driver => driver.location && (
               <Marker
@@ -360,16 +375,6 @@ export default function RiderDashboard() {
               </OverlayView>
             )}
 
-            <Polygon
-              paths={DAYBREAK_BOUNDARY}
-              options={{
-                strokeColor: '#2d6a4f',
-                strokeOpacity: 0.8,
-                strokeWeight: 2,
-                fillColor: '#2d6a4f',
-                fillOpacity: 0.06,
-              }}
-            />
           </GoogleMap>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
