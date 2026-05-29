@@ -3,6 +3,7 @@ import {
   GoogleMap,
   useJsApiLoader,
   Marker,
+  Polygon,
 } from '@react-google-maps/api';
 import {
   doc,
@@ -20,6 +21,22 @@ import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
 const DAYBREAK_CENTER = { lat: 40.4933, lng: -112.0273 };
+
+const DAYBREAK_BOUNDARY = [
+  { lat: 40.565944, lng: -112.015250 },
+  { lat: 40.566000, lng: -111.994889 },
+  { lat: 40.561083, lng: -111.991250 },
+  { lat: 40.556194, lng: -111.989250 },
+  { lat: 40.551222, lng: -111.986111 },
+  { lat: 40.549361, lng: -111.987806 },
+  { lat: 40.547778, lng: -111.991333 },
+  { lat: 40.544333, lng: -111.991194 },
+  { lat: 40.544139, lng: -111.988528 },
+  { lat: 40.536972, lng: -111.992639 },
+  { lat: 40.537028, lng: -112.059750 },
+  { lat: 40.550750, lng: -112.062861 },
+  { lat: 40.562167, lng: -112.024722 },
+];
 
 
 const MAP_OPTIONS = {
@@ -377,6 +394,17 @@ export default function DriverDashboard() {
                 }}
               />
             )}
+
+            <Polygon
+              paths={DAYBREAK_BOUNDARY}
+              options={{
+                strokeColor: '#2d6a4f',
+                strokeOpacity: 0.8,
+                strokeWeight: 2,
+                fillColor: '#2d6a4f',
+                fillOpacity: 0.06,
+              }}
+            />
           </GoogleMap>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
