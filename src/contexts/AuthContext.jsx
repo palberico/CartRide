@@ -4,11 +4,10 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  deleteUser,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, deleteObject } from 'firebase/storage';
-import { auth, db, storage } from '../firebase/config';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, functions } from '../firebase/config';
 
 const AuthContext = createContext(null);
 
@@ -69,26 +68,11 @@ export function AuthProvider({ children }) {
   }
 
   async function deleteAccount() {
-    const currentUser = auth.currentUser;
-    if (!currentUser) return;
-    const uid = currentUser.uid;
-    const role = userProfile?.role;
-
-    // Delete app data first while the auth token is still valid.
-    // If deleteUser below fails with auth/requires-recent-login, the UI
-    // catches that and tells the user to re-login — the orphaned Firestore/
-    // Storage data will be cleaned up on their next deletion attempt.
-    await Promise.allSettled([
-      deleteObject(ref(storage, `avatars/${uid}`)),
-      deleteObject(ref(storage, `venmo-qr/${uid}`)),
-    ]);
-
-    if (role === 'driver') await deleteDoc(doc(db, 'drivers', uid));
-    await deleteDoc(doc(db, 'users', uid));
-
-    // Delete the Auth account last. Throws auth/requires-recent-login if the
-    // session is stale — the caller surfaces this as a re-login prompt.
-    await deleteUser(currentUser);
+    if (!auth.currentUser) return;
+    // Cloud Function handles Auth + Firestore + Storage deletion atomically
+    // using the Admin SDK — no client-side auth token concerns.
+    const deleteAccountFn = httpsCallable(functions, 'deleteAccount');
+    await deleteAccountFn();
   }
 
   useEffect(() => {
