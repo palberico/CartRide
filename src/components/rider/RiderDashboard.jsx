@@ -480,27 +480,31 @@ export default function RiderDashboard() {
                   </select>
                 )}
 
-                {/* Map tap button — same style as pickup hint */}
+                {/* Map tap button — always green, no toggle */}
                 {!destinationPin && (
-                  <div
-                    className="map-hint"
-                    style={{
-                      cursor: 'pointer',
-                      marginBottom: 8,
-                      background: mapMode === 'destination' ? '#fff3e0' : undefined,
-                      color: mapMode === 'destination' ? '#b45309' : undefined,
-                    }}
-                    onClick={() => {
-                      if (mapMode === 'destination') {
-                        setMapMode('pickup');
-                      } else {
+                  <>
+                    <div
+                      className="map-hint"
+                      style={{ cursor: 'pointer', marginBottom: 0 }}
+                      onClick={() => {
                         setMapMode('destination');
                         if (window.innerWidth <= 768) setSheetOpen(false);
-                      }
-                    }}
-                  >
-                    {mapMode === 'destination' ? '✕ Cancel map selection' : '🗺 Click the map to set destination'}
-                  </div>
+                      }}
+                    >
+                      🗺 Click the map to set destination
+                    </div>
+
+                    {/* "or" divider */}
+                    <div style={{ display: 'flex', justifyContent: 'center', margin: '-10px 0', position: 'relative', zIndex: 1 }}>
+                      <div style={{
+                        width: 32, height: 32, borderRadius: '50%',
+                        background: 'var(--white)', border: '2px solid var(--gray-200)',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 700, color: 'var(--gray-600)', userSelect: 'none',
+                      }}>or</div>
+                    </div>
+                  </>
                 )}
 
                 {/* Destination display or text input */}
