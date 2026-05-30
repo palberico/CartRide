@@ -35,11 +35,13 @@ export default function DriverDashboard() {
   const [pendingRides, setPendingRides] = useState([]);
   const [activeRide, setActiveRide] = useState(null);
   const [myLocation, setMyLocation] = useState(null);
+  const [sheetOpen, setSheetOpen] = useState(true);
   const watchIdRef = useRef(null);
   const mapRef = useRef(null);
   const [mapInstance, setMapInstance] = useState(null);
   const directionsRendererRef = useRef(null);
   const pickupRouteRendererRef = useRef(null);
+  const touchStartY = useRef(null);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const { isLoaded } = useJsApiLoader({ googleMapsApiKey: apiKey || '' });
@@ -223,6 +225,30 @@ export default function DriverDashboard() {
     }
   }
 
+  // Auto-open sheet when a new ride request arrives
+  useEffect(() => {
+    if (pendingRides.length > 0) setSheetOpen(true);
+  }, [pendingRides.length]);
+
+  // Auto-open sheet when driver accepts a ride or ride ends (needs action)
+  useEffect(() => {
+    if (activeRide?.status === 'accepted' || activeRide?.status === 'ending') {
+      setSheetOpen(true);
+    }
+  }, [activeRide?.status]);
+
+  function handleSheetTouchStart(e) {
+    touchStartY.current = e.touches[0].clientY;
+  }
+
+  function handleSheetTouchEnd(e) {
+    if (touchStartY.current === null) return;
+    const delta = e.changedTouches[0].clientY - touchStartY.current;
+    if (delta > 40)  setSheetOpen(false);
+    if (delta < -40) setSheetOpen(true);
+    touchStartY.current = null;
+  }
+
   const onMapLoad = useCallback((map) => { mapRef.current = map; setMapInstance(map); }, []);
 
   useEffect(() => {
@@ -329,17 +355,53 @@ export default function DriverDashboard() {
 
   return (
     <div className="dashboard has-sidebar">
-      <div className="sidebar">
-        <div className="sidebar-header">
-          <h2>Driver Dashboard</h2>
-          <p>
-            {driverDoc.online
-              ? <><span className="online-dot" style={{ marginRight: 6 }} />Online — accepting rides</>
-              : driverDoc.acceptingOffline
-              ? <><span style={{ width: 10, height: 10, borderRadius: '50%', background: '#f4a261', display: 'inline-block', marginRight: 6 }} />Offline — accepting requests</>
-              : <><span className="offline-dot" style={{ marginRight: 6 }} />Offline</>
-            }
-          </p>
+      <div className={`sidebar${sheetOpen ? '' : ' sheet-collapsed'}`}>
+        <div
+          className="sidebar-header"
+          onClick={() => setSheetOpen(v => !v)}
+          onTouchStart={handleSheetTouchStart}
+          onTouchEnd={handleSheetTouchEnd}
+        >
+          <div className="sheet-handle" />
+          <div className="sidebar-header-row">
+            <div>
+              <h2>Driver Dashboard</h2>
+              <p>
+                {driverDoc.online
+                  ? <><span className="online-dot" style={{ marginRight: 6 }} />Online</>
+                  : driverDoc.acceptingOffline
+                  ? <><span style={{ width: 10, height: 10, borderRadius: '50%', background: '#f4a261', display: 'inline-block', marginRight: 6 }} />Offline — accepting</>
+                  : <><span className="offline-dot" style={{ marginRight: 6 }} />Offline</>
+                }
+              </p>
+            </div>
+            {/* Quick-action button visible in collapsed header */}
+            {!sheetOpen && activeRide && (
+              activeRide.status === 'accepted' ? (
+                <button className="btn btn-primary sheet-request-btn"
+                  onClick={e => { e.stopPropagation(); startRide(); }}>
+                  ▶ Start
+                </button>
+              ) : activeRide.status === 'active' ? (
+                <button className="btn sheet-request-btn"
+                  style={{ background: '#f4a261', color: '#fff' }}
+                  onClick={e => { e.stopPropagation(); endRide(); }}>
+                  🏁 End
+                </button>
+              ) : activeRide.status === 'ending' ? (
+                <button className="btn btn-success sheet-request-btn"
+                  onClick={e => { e.stopPropagation(); completeRide(); }}>
+                  ✓ Done
+                </button>
+              ) : null
+            )}
+            {/* New ride badge in collapsed header */}
+            {!sheetOpen && !activeRide && incomingRides.length > 0 && (
+              <span className="notification-pill" style={{ fontSize: 13, padding: '4px 10px' }}>
+                {incomingRides.length} new
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="sidebar-body">
@@ -488,7 +550,7 @@ export default function DriverDashboard() {
       </div>
 
       {/* Map */}
-      <div className="map-container" style={{ position: 'relative' }}>
+      <div className="map-container">
         {!apiKey || apiKey === 'your_google_maps_api_key' ? (
           <div className="map-no-key">
             <span style={{ fontSize: 40 }}>🗺️</span>
