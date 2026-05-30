@@ -71,11 +71,8 @@ export default function RiderDashboard() {
     const unsub = onSnapshot(q, (snap) => {
       if (!snap.empty) {
         const ride = { id: snap.docs[0].id, ...snap.docs[0].data() };
-        const wasPayment = ['ending', 'completed'].includes(activeRide?.status);
-        if (ride.status === 'ending' && !wasPayment) {
+        if (ride.status === 'ending' && activeRide?.status === 'active') {
           toast.success('Ride ended! Please pay your driver.');
-          // Open sheet immediately so rider sees Venmo without having to swipe
-          if (window.innerWidth <= 768) setSheetOpen(true);
         }
         if (ride.status === 'completed' && activeRide?.status !== 'completed') {
           toast.success('Thanks for riding with CartRide!');
@@ -196,6 +193,11 @@ export default function RiderDashboard() {
     });
   }, [activeRide?.status, activeRide?.pickupLocation, driverLocation]);
 
+
+  // Open the sheet when the driver ends the ride so payment info is immediately visible
+  useEffect(() => {
+    if (activeRide?.status === 'ending') setSheetOpen(true);
+  }, [activeRide?.status]);
 
   // Reset arrived flag whenever a new ride starts
   useEffect(() => { arrivedAlertShownRef.current = false; }, [activeRide?.id]);
