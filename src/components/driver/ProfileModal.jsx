@@ -116,9 +116,9 @@ export default function ProfileModal({ onClose }) {
       toast.success('Account deleted.');
     } catch (err) {
       if (err.code === 'auth/requires-recent-login') {
-        toast.error('Please sign out and sign back in before deleting your account.');
+        toast.error('Your session is too old. Sign out, sign back in, then delete your account.');
       } else {
-        toast.error('Failed to delete account.');
+        toast.error('Failed to delete account. Please try again.');
       }
       setDeleting(false);
       setConfirmDelete(false);

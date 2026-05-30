@@ -74,17 +74,21 @@ export function AuthProvider({ children }) {
     const uid = currentUser.uid;
     const role = userProfile?.role;
 
-    // Delete Auth account FIRST — if this throws (e.g. auth/requires-recent-login)
-    // no app data has been touched yet, so the account is still intact.
-    await deleteUser(currentUser);
-
-    // Auth is gone — clean up app data best-effort (partial failures are acceptable)
+    // Delete app data first while the auth token is still valid.
+    // If deleteUser below fails with auth/requires-recent-login, the UI
+    // catches that and tells the user to re-login — the orphaned Firestore/
+    // Storage data will be cleaned up on their next deletion attempt.
     await Promise.allSettled([
       deleteObject(ref(storage, `avatars/${uid}`)),
       deleteObject(ref(storage, `venmo-qr/${uid}`)),
-      ...(role === 'driver' ? [deleteDoc(doc(db, 'drivers', uid))] : []),
-      deleteDoc(doc(db, 'users', uid)),
     ]);
+
+    if (role === 'driver') await deleteDoc(doc(db, 'drivers', uid));
+    await deleteDoc(doc(db, 'users', uid));
+
+    // Delete the Auth account last. Throws auth/requires-recent-login if the
+    // session is stale — the caller surfaces this as a re-login prompt.
+    await deleteUser(currentUser);
   }
 
   useEffect(() => {

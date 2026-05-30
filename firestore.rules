@@ -65,7 +65,8 @@ service cloud.firestore {
                        && request.resource.data.keys().hasOnly([
                             'riderId', 'riderName', 'driverId', 'driverName',
                             'status', 'pickupLocation', 'pickupAddress',
-                            'dropoffAddress', 'price', 'createdAt', 'updatedAt'
+                            'dropoffAddress', 'dropoffLocation',
+                            'price', 'createdAt', 'updatedAt'
                           ]);
 
       // Riders see own rides; assigned driver sees their rides;
