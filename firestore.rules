@@ -56,12 +56,17 @@ service cloud.firestore {
     // ── Rides ────────────────────────────────────────────────────────────────
     match /rides/{rideId} {
 
-      // Riders create rides for themselves only, with enforced initial state
+      // Riders create rides for themselves only, with enforced initial state and exact field set
       allow create: if isAuth() && role() == 'rider'
-                       && request.resource.data.riderId   == request.auth.uid
-                       && request.resource.data.status    == 'pending'
-                       && request.resource.data.driverId  == null
-                       && request.resource.data.price     == 6;
+                       && request.resource.data.riderId  == request.auth.uid
+                       && request.resource.data.status   == 'pending'
+                       && request.resource.data.driverId == null
+                       && request.resource.data.price    == 6
+                       && request.resource.data.keys().hasOnly([
+                            'riderId', 'riderName', 'driverId', 'driverName',
+                            'status', 'pickupLocation', 'pickupAddress',
+                            'dropoffAddress', 'price', 'createdAt', 'updatedAt'
+                          ]);
 
       // Riders see own rides; assigned driver sees their rides;
       // approved drivers see pending rides only; admin sees all
@@ -74,11 +79,11 @@ service cloud.firestore {
 
       allow update: if isAuth() && (
 
-        // Rider: cancel own pending ride, or archive own completed ride (status + updatedAt only)
+        // Rider: cancel own pending ride, or archive own ending/completed ride
         (resource.data.riderId == request.auth.uid
           && (
-            (resource.data.status == 'pending'   && request.resource.data.status == 'cancelled')
-            || (resource.data.status == 'completed' && request.resource.data.status == 'archived')
+            (resource.data.status == 'pending' && request.resource.data.status == 'cancelled')
+            || (resource.data.status in ['ending', 'completed'] && request.resource.data.status == 'archived')
           )
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['status', 'updatedAt'])
@@ -86,7 +91,7 @@ service cloud.firestore {
 
         ||
 
-        // Approved driver: accept an unassigned pending ride (specific fields only)
+        // Approved driver: accept an unassigned pending ride (exact fields only)
         (isApprovedDriver()
           && resource.data.status   == 'pending'
           && resource.data.driverId == null
@@ -99,9 +104,13 @@ service cloud.firestore {
 
         ||
 
-        // Assigned driver: advance ride status (status + updatedAt only)
+        // Assigned driver: exact forward-only status transitions, status + updatedAt only
         (resource.data.driverId == request.auth.uid
-          && request.resource.data.status in ['active', 'ending', 'completed']
+          && (
+            (resource.data.status == 'accepted' && request.resource.data.status == 'active')
+            || (resource.data.status == 'active'   && request.resource.data.status == 'ending')
+            || (resource.data.status == 'ending'   && request.resource.data.status == 'completed')
+          )
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['status', 'updatedAt'])
         )

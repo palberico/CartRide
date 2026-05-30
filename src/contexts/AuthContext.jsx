@@ -74,20 +74,17 @@ export function AuthProvider({ children }) {
     const uid = currentUser.uid;
     const role = userProfile?.role;
 
-    // Remove Storage files (ignore errors — files may not exist)
+    // Delete Auth account FIRST — if this throws (e.g. auth/requires-recent-login)
+    // no app data has been touched yet, so the account is still intact.
+    await deleteUser(currentUser);
+
+    // Auth is gone — clean up app data best-effort (partial failures are acceptable)
     await Promise.allSettled([
       deleteObject(ref(storage, `avatars/${uid}`)),
       deleteObject(ref(storage, `venmo-qr/${uid}`)),
+      ...(role === 'driver' ? [deleteDoc(doc(db, 'drivers', uid))] : []),
+      deleteDoc(doc(db, 'users', uid)),
     ]);
-
-    // Delete Firestore documents
-    if (role === 'driver') {
-      await deleteDoc(doc(db, 'drivers', uid));
-    }
-    await deleteDoc(doc(db, 'users', uid));
-
-    // Delete the Firebase Auth account (must be last)
-    await deleteUser(currentUser);
   }
 
   useEffect(() => {
