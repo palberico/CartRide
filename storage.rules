@@ -1,0 +1,30 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Profile avatars
+    match /avatars/{uid} {
+      allow read:           if request.auth != null;
+      allow create, update: if request.auth != null
+                               && request.auth.uid == uid
+                               && request.resource.contentType.matches('image/.*')
+                               && request.resource.size <= 5 * 1024 * 1024;
+      allow delete:         if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Venmo QR codes
+    match /venmo-qr/{uid} {
+      allow read:           if request.auth != null;
+      allow create, update: if request.auth != null
+                               && request.auth.uid == uid
+                               && request.resource.contentType.matches('image/.*')
+                               && request.resource.size <= 5 * 1024 * 1024;
+      allow delete:         if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Deny everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

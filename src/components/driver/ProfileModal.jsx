@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { doc, updateDoc, deleteField } from 'firebase/firestore';
+import { useState, useEffect, useRef } from 'react';
+import { doc, getDoc, updateDoc, deleteField } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
@@ -25,26 +25,24 @@ export default function ProfileModal({ onClose }) {
   const fileInputRef = useRef(null);
   const venmoQrInputRef = useRef(null);
 
-  // Load driver-specific fields once
-  useState(() => {
+  // Load driver-specific fields once on mount
+  useEffect(() => {
     if (userProfile?.role !== 'driver') return;
-    import('firebase/firestore').then(({ doc: d, getDoc }) => {
-      getDoc(d(db, 'drivers', user.uid)).then(snap => {
-        if (snap.exists()) {
-          const data = snap.data();
-          setDriverData(data);
-          setForm(f => ({
-            ...f,
-            cartDescription: data.cartDescription || '',
-            venmoHandle: data.venmoHandle || '',
-            paypalHandle: data.paypalHandle || '',
-          }));
-          if (data.avatarUrl) setAvatarPreview(data.avatarUrl);
-          if (data.venmoQrUrl) setVenmoQrPreview(data.venmoQrUrl);
-        }
-      });
+    getDoc(doc(db, 'drivers', user.uid)).then(snap => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setDriverData(data);
+        setForm(f => ({
+          ...f,
+          cartDescription: data.cartDescription || '',
+          venmoHandle: data.venmoHandle || '',
+          paypalHandle: data.paypalHandle || '',
+        }));
+        if (data.avatarUrl) setAvatarPreview(data.avatarUrl);
+        if (data.venmoQrUrl) setVenmoQrPreview(data.venmoQrUrl);
+      }
     });
-  });
+  }, []);
 
   function handleAvatarChange(e) {
     const file = e.target.files[0];

@@ -10,71 +10,104 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
-    // Users — can read own doc; role is locked to rider/driver on create; cannot self-elevate
+    function isApprovedDriver() {
+      return role() == 'driver'
+        && get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.approved == true;
+    }
+
+    // ── Users ────────────────────────────────────────────────────────────────
     match /users/{uid} {
-      allow read: if isAuth() && request.auth.uid == uid;
+      allow read:   if isAuth() && request.auth.uid == uid;
       allow create: if isAuth() && request.auth.uid == uid
-        && request.resource.data.role in ['rider', 'driver'];
+                       && request.resource.data.role in ['rider', 'driver'];
       allow update: if isAuth() && request.auth.uid == uid
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
+                       && !request.resource.data.diff(resource.data)
+                            .affectedKeys().hasAny(['role']);
       allow delete: if isAuth() && request.auth.uid == uid;
     }
 
-    // Drivers — drivers read/write own doc; riders read all (to see map); admin reads/writes all
+    // ── Drivers ──────────────────────────────────────────────────────────────
     match /drivers/{uid} {
       allow read: if isAuth();
-      allow create: if isAuth() && request.auth.uid == uid;
+
+      // Enforce safe defaults on creation — cannot self-approve
+      allow create: if isAuth() && request.auth.uid == uid
+                       && request.resource.data.approved       == false
+                       && request.resource.data.online         == false
+                       && request.resource.data.location       == null;
+
+      // Driver can update own doc except the approved flag; admin can update anything
       allow update: if isAuth() && (
         (request.auth.uid == uid
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['approved']))
+          && !request.resource.data.diff(resource.data)
+               .affectedKeys().hasAny(['approved']))
         || role() == 'admin'
       );
+
       allow delete: if isAuth() && request.auth.uid == uid;
     }
 
-    // Common locations — anyone logged in can read; only admin can write
+    // ── Common locations ─────────────────────────────────────────────────────
     match /commonLocations/{locId} {
-      allow read: if isAuth();
+      allow read:  if isAuth();
       allow write: if isAuth() && role() == 'admin';
     }
 
-    // Rides
+    // ── Rides ────────────────────────────────────────────────────────────────
     match /rides/{rideId} {
-      // Only riders can create rides, and only for themselves
-      allow create: if isAuth() && role() == 'rider'
-        && request.resource.data.riderId == request.auth.uid;
 
-      // Rider sees own rides; assigned driver sees their rides; all drivers see pending rides; admin sees all
+      // Riders create rides for themselves only, with enforced initial state
+      allow create: if isAuth() && role() == 'rider'
+                       && request.resource.data.riderId   == request.auth.uid
+                       && request.resource.data.status    == 'pending'
+                       && request.resource.data.driverId  == null
+                       && request.resource.data.price     == 6;
+
+      // Riders see own rides; assigned driver sees their rides;
+      // approved drivers see pending rides only; admin sees all
       allow read: if isAuth() && (
-        resource.data.riderId == request.auth.uid
+        resource.data.riderId   == request.auth.uid
         || resource.data.driverId == request.auth.uid
-        || role() == 'driver'
+        || (isApprovedDriver() && resource.data.status == 'pending')
         || role() == 'admin'
       );
 
       allow update: if isAuth() && (
-        // Rider can cancel their own pending ride, or archive their completed ride
+
+        // Rider: cancel own pending ride, or archive own completed ride (status + updatedAt only)
         (resource.data.riderId == request.auth.uid
           && (
-            (resource.data.status == 'pending' && request.resource.data.status == 'cancelled')
+            (resource.data.status == 'pending'   && request.resource.data.status == 'cancelled')
             || (resource.data.status == 'completed' && request.resource.data.status == 'archived')
           )
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['status', 'updatedAt'])
         )
+
         ||
-        // Any approved driver can accept an unassigned pending ride
-        (role() == 'driver'
-          && resource.data.status == 'pending'
+
+        // Approved driver: accept an unassigned pending ride (specific fields only)
+        (isApprovedDriver()
+          && resource.data.status   == 'pending'
           && resource.data.driverId == null
-          && request.resource.data.status == 'accepted'
+          && request.resource.data.status   == 'accepted'
+          && request.resource.data.driverId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'driverId', 'driverName', 'driverVenmo',
+                         'driverPaypal', 'driverVenmoQrUrl', 'updatedAt'])
         )
+
         ||
-        // The assigned driver can advance the ride through valid statuses
+
+        // Assigned driver: advance ride status (status + updatedAt only)
         (resource.data.driverId == request.auth.uid
           && request.resource.data.status in ['active', 'ending', 'completed']
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'updatedAt'])
         )
+
         ||
+
         role() == 'admin'
       );
     }
