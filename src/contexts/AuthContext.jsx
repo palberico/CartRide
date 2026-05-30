@@ -6,8 +6,9 @@ import {
   onAuthStateChanged,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
-import { auth, db, functions } from '../firebase/config';
+import { auth, db, storage, functions } from '../firebase/config';
 
 const AuthContext = createContext(null);
 
@@ -20,14 +21,23 @@ export function AuthProvider({ children }) {
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  async function register({ name, email, password, role, venmoHandle, paypalHandle, cartDescription }) {
+  async function register({ name, email, password, role, city, venmoHandle, paypalHandle, cartDescription, venmoQrFile }) {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     const uid = cred.user.uid;
+
+    // Upload Venmo QR if provided (must happen after auth account exists)
+    let venmoQrUrl = null;
+    if (venmoQrFile && role === 'driver') {
+      const qrRef = ref(storage, `venmo-qr/${uid}`);
+      await uploadBytes(qrRef, venmoQrFile);
+      venmoQrUrl = await getDownloadURL(qrRef);
+    }
 
     await setDoc(doc(db, 'users', uid), {
       name,
       email,
       role,
+      ...(role === 'driver' && city ? { city } : {}),
       createdAt: serverTimestamp(),
     });
 
@@ -36,9 +46,11 @@ export function AuthProvider({ children }) {
         uid,
         name,
         email,
+        city: city || 'daybreak',
         venmoHandle: venmoHandle || '',
         paypalHandle: paypalHandle || '',
         cartDescription: cartDescription || '',
+        ...(venmoQrUrl ? { venmoQrUrl } : {}),
         approved: false,
         online: false,
         location: null,

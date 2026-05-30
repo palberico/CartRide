@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { DAYBREAK_CENTER, DAYBREAK_BOUNDARY } from '../../constants/daybreak';
+import { CITIES, CITY_LIST } from '../../constants/cities';
 import {
   GoogleMap,
   useJsApiLoader,
@@ -44,7 +44,8 @@ export default function RiderDashboard() {
   const [submitting, setSubmitting] = useState(false);
   const [driverEta, setDriverEta] = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
-  const [mapCenter, setMapCenter] = useState(DAYBREAK_CENTER);
+  const [activeCity, setActiveCity] = useState(CITIES.daybreak); // default until GPS resolves
+  const [mapCenter, setMapCenter] = useState(CITIES.daybreak.center);
   const [mapInstance, setMapInstance] = useState(null);
   const mapRef = useRef(null);
   const activeRideRef = useRef(null);
@@ -116,7 +117,7 @@ export default function RiderDashboard() {
     });
   }, [pickup, destinationPin]);
 
-  // Center on GPS location once it resolves
+  // Center on GPS location and detect city once it resolves
   useEffect(() => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
@@ -125,6 +126,9 @@ export default function RiderDashboard() {
         setRiderLocation(loc);
         setMapCenter(loc);
         mapRef.current?.panTo(loc);
+        // Detect which city the rider is in
+        const detected = CITY_LIST.find(c => isInsideServiceArea(loc, c.boundary));
+        if (detected) setActiveCity(detected);
       },
       () => {},
       { timeout: 10000, maximumAge: 30000 }
@@ -138,16 +142,20 @@ export default function RiderDashboard() {
     }
   }, [activeRide?.id]);
 
-  // Watch all approved drivers, split into online vs offline-accepting
+  // Watch approved drivers in the detected city only
   useEffect(() => {
-    const q = query(collection(db, 'drivers'), where('approved', '==', true));
+    const q = query(
+      collection(db, 'drivers'),
+      where('approved', '==', true),
+      where('city', '==', activeCity.id)
+    );
     const unsub = onSnapshot(q, (snap) => {
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setOnlineDrivers(all.filter(d => d.online && d.location));
       setOfflineAcceptingDrivers(all.filter(d => !d.online && d.acceptingOffline));
     });
     return unsub;
-  }, []);
+  }, [activeCity.id]);
 
   // Subscribe directly to the accepted driver's doc for live location updates
   useEffect(() => {
@@ -225,11 +233,11 @@ export default function RiderDashboard() {
     }
   }, [driverLocation, activeRide?.status, activeRide?.pickupLocation, activeRide?.id]);
 
-  // Draw the Daybreak boundary polygon directly on the map instance
+  // Draw city boundary polygon — redraws when city changes
   useEffect(() => {
     if (!mapInstance) return;
     const polygon = new window.google.maps.Polygon({
-      paths: DAYBREAK_BOUNDARY,
+      paths: activeCity.boundary,
       strokeColor: '#2d6a4f',
       strokeOpacity: 0.85,
       strokeWeight: 2.5,
@@ -239,13 +247,13 @@ export default function RiderDashboard() {
       map: mapInstance,
     });
     return () => polygon.setMap(null);
-  }, [mapInstance]);
+  }, [mapInstance, activeCity.id]);
 
 
   async function geocodeDestination(value) {
     if (!value.trim()) return;
-    const query = `${value.trim()}, South Jordan, Utah`;
-    const latLng = await reverseGeocodeAddress(query);
+    const q = `${value.trim()}, ${activeCity.geocodingContext}`;
+    const latLng = await reverseGeocodeAddress(q);
     if (latLng) setDestinationPin(latLng);
   }
 
@@ -257,10 +265,13 @@ export default function RiderDashboard() {
         setRiderLocation(loc);
         setMapCenter(loc);
         mapRef.current?.panTo(loc);
-        if (!isInsideServiceArea(loc, DAYBREAK_BOUNDARY)) {
-          toast.error('Your current location is outside the Daybreak service area.');
+        // Detect city from new location
+        const detected = CITY_LIST.find(c => isInsideServiceArea(loc, c.boundary));
+        if (!detected) {
+          toast.error('Your current location is outside all CartRide service areas.');
           return;
         }
+        setActiveCity(detected);
         setPickup(loc);
         setPickupAddress(null);
         const addr = await reverseGeocode(loc);
@@ -282,6 +293,7 @@ export default function RiderDashboard() {
         driverId: null,
         driverName: null,
         status: 'pending',
+        city: activeCity.id,
         pickupLocation: pickup,
         pickupAddress: pickupAddress || null,
         dropoffAddress: destination.trim(),
@@ -341,7 +353,7 @@ export default function RiderDashboard() {
       <div className="sidebar">
         <div className="sidebar-header">
           <h2>Request a Ride</h2>
-          <p>Daybreak, UT · Flat rate ${RIDE_PRICE}</p>
+          <p>{activeCity.displayName} · Flat rate ${RIDE_PRICE}</p>
         </div>
 
         <div className="sidebar-body">
@@ -517,8 +529,8 @@ export default function RiderDashboard() {
                 const ride = activeRideRef.current;
                 if (ride && !['ending', 'completed', 'archived'].includes(ride.status)) return;
                 const loc = { lat: e.latLng.lat(), lng: e.latLng.lng() };
-                if (!isInsideServiceArea(loc, DAYBREAK_BOUNDARY)) {
-                  toast.error('That spot is outside the Daybreak service area.');
+                if (!isInsideServiceArea(loc, activeCity.boundary)) {
+                  toast.error(`That spot is outside the ${activeCity.name} service area.`);
                   return;
                 }
                 const mode = mapModeRef.current;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { DAYBREAK_CENTER, DAYBREAK_BOUNDARY } from '../../constants/daybreak';
+import { CITIES } from '../../constants/cities';
 import {
   GoogleMap,
   useJsApiLoader,
@@ -59,19 +59,21 @@ export default function DriverDashboard() {
       setPendingRides([]);
       return;
     }
+    const driverCity = driverDoc.city || 'daybreak';
     const q = query(
       collection(db, 'rides'),
       where('status', '==', 'pending'),
-      limit(10)
+      limit(20)
     );
     const unsub = onSnapshot(q, (snap) => {
       const rides = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Sort oldest-first client-side (no composite index needed)
-      rides.sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
-      setPendingRides(rides);
+      // Filter by city client-side — handles legacy rides without a city field
+      const cityRides = rides.filter(r => (r.city || 'daybreak') === driverCity);
+      cityRides.sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
+      setPendingRides(cityRides);
     });
     return unsub;
-  }, [driverDoc?.online, driverDoc?.approved, driverDoc?.acceptingOffline]);
+  }, [driverDoc?.online, driverDoc?.approved, driverDoc?.acceptingOffline, driverDoc?.city]);
 
   // Subscribe to the driver's active ride
   useEffect(() => {
@@ -226,7 +228,7 @@ export default function DriverDashboard() {
   useEffect(() => {
     if (!mapInstance) return;
     const polygon = new window.google.maps.Polygon({
-      paths: DAYBREAK_BOUNDARY,
+      paths: (CITIES[driverDoc?.city] || CITIES.daybreak).boundary,
       strokeColor: '#2d6a4f',
       strokeOpacity: 0.85,
       strokeWeight: 2.5,
@@ -496,7 +498,7 @@ export default function DriverDashboard() {
         ) : isLoaded ? (
           <GoogleMap
             mapContainerStyle={{ width: '100%', height: '100%' }}
-            center={myLocation || DAYBREAK_CENTER}
+            center={myLocation || (CITIES[driverDoc?.city] || CITIES.daybreak).center}
             zoom={15}
             options={MAP_OPTIONS}
             onLoad={onMapLoad}

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { CITY_LIST } from '../../constants/cities';
 
 function EyeIcon({ open }) {
   return open ? (
@@ -23,20 +24,41 @@ export default function Register() {
     email: '',
     password: '',
     role: 'rider',
+    city: '',
     venmoHandle: '',
     paypalHandle: '',
     cartDescription: '',
   });
+  const [venmoQrFile, setVenmoQrFile] = useState(null);
+  const [venmoQrPreview, setVenmoQrPreview] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const venmoQrInputRef = useRef(null);
 
   function handleChange(e) {
     setForm(f => ({ ...f, [e.target.name]: e.target.value }));
   }
 
   function selectRole(role) {
-    setForm(f => ({ ...f, role }));
+    setForm(f => ({ ...f, role, city: '' }));
+    setVenmoQrFile(null);
+    setVenmoQrPreview(null);
+  }
+
+  function selectCity(cityId) {
+    setForm(f => ({ ...f, city: cityId }));
+  }
+
+  function handleVenmoQrChange(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setError('QR image must be under 5 MB.');
+      return;
+    }
+    setVenmoQrFile(file);
+    setVenmoQrPreview(URL.createObjectURL(file));
   }
 
   async function handleSubmit(e) {
@@ -46,13 +68,16 @@ export default function Register() {
     if (form.password.length < 6) {
       return setError('Password must be at least 6 characters.');
     }
+    if (form.role === 'driver' && !form.city) {
+      return setError('Please select the city where you drive.');
+    }
     if (form.role === 'driver' && !form.venmoHandle && !form.paypalHandle) {
       return setError('Please enter at least a Venmo or PayPal handle so riders can pay you.');
     }
 
     setLoading(true);
     try {
-      await register(form);
+      await register({ ...form, venmoQrFile });
     } catch (err) {
       setError(getFriendlyError(err.code));
     } finally {
@@ -66,7 +91,7 @@ export default function Register() {
         <div className="auth-logo">
           <span className="logo-icon">🛺</span>
           <h1>CartRide</h1>
-          <p>Daybreak, UT · Golf Cart Rides</p>
+          <p>Golf Cart Rides · Daybreak &amp; Viera</p>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
@@ -148,6 +173,24 @@ export default function Register() {
             <div className="driver-fields">
               <div className="driver-fields-title">Driver details</div>
 
+              {/* City selector */}
+              <div className="form-group">
+                <label>City you drive in</label>
+                <div className="role-selector">
+                  {CITY_LIST.map(city => (
+                    <div
+                      key={city.id}
+                      className={`role-option ${form.city === city.id ? 'selected' : ''}`}
+                      onClick={() => selectCity(city.id)}
+                    >
+                      <span className="role-icon">{city.id === 'daybreak' ? '🏔️' : '🌴'}</span>
+                      <span className="role-label">{city.name}</span>
+                      <span className="role-desc">{city.displayName}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="form-group">
                 <label>Golf cart description</label>
                 <textarea
@@ -179,6 +222,47 @@ export default function Register() {
                     placeholder="@YourHandle"
                   />
                 </div>
+              </div>
+
+              {/* Venmo QR code upload */}
+              <div className="form-group">
+                <label>Venmo QR Code <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 12, color: 'var(--gray-400)' }}>(optional)</span></label>
+                <p style={{ fontSize: 12, color: 'var(--gray-600)', marginBottom: 10 }}>
+                  Riders will see this so they can scan to pay you.
+                </p>
+                {venmoQrPreview ? (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                    <img
+                      src={venmoQrPreview}
+                      alt="Venmo QR"
+                      style={{ width: 100, height: 100, objectFit: 'contain', border: '1.5px solid var(--gray-200)', borderRadius: 'var(--radius-sm)', background: '#fff' }}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => venmoQrInputRef.current?.click()}>
+                        Replace
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ color: 'var(--danger)' }}
+                        onClick={() => { setVenmoQrFile(null); setVenmoQrPreview(null); }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => venmoQrInputRef.current?.click()}>
+                    📷 Upload QR code
+                  </button>
+                )}
+                <input
+                  ref={venmoQrInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleVenmoQrChange}
+                />
               </div>
 
               <p className="text-sm text-muted">
