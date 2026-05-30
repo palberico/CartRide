@@ -71,13 +71,14 @@ export default function RiderDashboard() {
     const unsub = onSnapshot(q, (snap) => {
       if (!snap.empty) {
         const ride = { id: snap.docs[0].id, ...snap.docs[0].data() };
-        if (ride.status === 'ending' && activeRide?.status === 'active') {
+        const wasPayment = ['ending', 'completed'].includes(activeRide?.status);
+        if (ride.status === 'ending' && !wasPayment) {
           toast.success('Ride ended! Please pay your driver.');
+          // Open sheet immediately so rider sees Venmo without having to swipe
           if (window.innerWidth <= 768) setSheetOpen(true);
         }
         if (ride.status === 'completed' && activeRide?.status !== 'completed') {
           toast.success('Thanks for riding with CartRide!');
-          if (window.innerWidth <= 768) setSheetOpen(true);
         }
         setActiveRide(ride);
       } else {
