@@ -523,7 +523,7 @@ export default function RiderDashboard() {
         </div>
       </div>
 
-      <div className="map-container" style={{ position: 'relative' }}>
+      <div className="map-container">
         {!apiKey || apiKey === 'your_google_maps_api_key' ? (
           <div className="map-no-key">
             <span style={{ fontSize: 40 }}>🗺️</span>
