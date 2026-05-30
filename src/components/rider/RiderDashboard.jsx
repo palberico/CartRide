@@ -43,11 +43,13 @@ export default function RiderDashboard() {
   const [offlineAcceptingDrivers, setOfflineAcceptingDrivers] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [driverEta, setDriverEta] = useState(null);
+  const [driverLocation, setDriverLocation] = useState(null);
   const [mapCenter, setMapCenter] = useState(DAYBREAK_CENTER);
   const [mapInstance, setMapInstance] = useState(null);
   const mapRef = useRef(null);
   const activeRideRef = useRef(null);
   const directionsRendererRef = useRef(null);
+  const driverRouteRendererRef = useRef(null);
   const mapModeRef = useRef('pickup');
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
@@ -147,18 +149,28 @@ export default function RiderDashboard() {
     return unsub;
   }, []);
 
-  // Calculate driver ETA when ride is accepted and driver has a live location
+  // Subscribe directly to the accepted driver's doc for live location updates
   useEffect(() => {
-    if (activeRide?.status !== 'accepted' || !activeRide?.pickupLocation) {
+    if (!activeRide?.driverId || activeRide.status === 'pending') {
+      setDriverLocation(null);
+      return;
+    }
+    const unsub = onSnapshot(doc(db, 'drivers', activeRide.driverId), (snap) => {
+      setDriverLocation(snap.exists() ? (snap.data().location || null) : null);
+    });
+    return unsub;
+  }, [activeRide?.driverId, activeRide?.status]);
+
+  // Recalculate ETA whenever driver location updates (accepted status only)
+  useEffect(() => {
+    if (activeRide?.status !== 'accepted' || !activeRide?.pickupLocation || !driverLocation) {
       setDriverEta(null);
       return;
     }
-    const driver = onlineDrivers.find(d => d.id === activeRide.driverId);
-    if (!driver?.location || !window.google?.maps?.DistanceMatrixService) return;
-
+    if (!window.google?.maps?.DistanceMatrixService) return;
     const service = new window.google.maps.DistanceMatrixService();
     service.getDistanceMatrix({
-      origins: [driver.location],
+      origins: [driverLocation],
       destinations: [activeRide.pickupLocation],
       travelMode: window.google.maps.TravelMode.DRIVING,
     }, (response, status) => {
@@ -167,7 +179,26 @@ export default function RiderDashboard() {
         if (el?.status === 'OK') setDriverEta(el.duration.text);
       }
     });
-  }, [activeRide?.status, activeRide?.driverId, activeRide?.pickupLocation, onlineDrivers]);
+  }, [activeRide?.status, activeRide?.pickupLocation, driverLocation]);
+
+  // Draw red approach route from driver → pickup; clear when ride starts
+  useEffect(() => {
+    const renderer = driverRouteRendererRef.current;
+    if (!renderer) return;
+    if (activeRide?.status !== 'accepted' || !driverLocation || !activeRide?.pickupLocation) {
+      renderer.setDirections({ routes: [] });
+      return;
+    }
+    const service = new window.google.maps.DirectionsService();
+    service.route({
+      origin: driverLocation,
+      destination: activeRide.pickupLocation,
+      travelMode: window.google.maps.TravelMode.DRIVING,
+    }, (result, status) => {
+      if (status === 'OK') renderer.setDirections(result);
+      else renderer.setDirections({ routes: [] });
+    });
+  }, [activeRide?.status, driverLocation, activeRide?.pickupLocation]);
 
   // Draw the Daybreak boundary polygon directly on the map instance
   useEffect(() => {
@@ -456,6 +487,11 @@ export default function RiderDashboard() {
                 polylineOptions: { strokeColor: '#2d6a4f', strokeWeight: 5, strokeOpacity: 0.75 },
                 map,
               });
+              driverRouteRendererRef.current = new window.google.maps.DirectionsRenderer({
+                suppressMarkers: true,
+                polylineOptions: { strokeColor: '#e63946', strokeWeight: 4, strokeOpacity: 0.8 },
+                map,
+              });
               // Attach click directly — reads mode + ride from refs so listener is never stale
               map.addListener('click', (e) => {
                 const ride = activeRideRef.current;
@@ -502,6 +538,19 @@ export default function RiderDashboard() {
                   url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(destSvg),
                   scaledSize: { width: 36, height: 44 },
                   anchor: { x: 18, y: 44 },
+                }}
+              />
+            )}
+
+            {/* Driver cart icon — visible while driver is approaching (accepted status) */}
+            {activeRide?.status === 'accepted' && driverLocation && (
+              <Marker
+                position={driverLocation}
+                title={activeRide.driverName || 'Your driver'}
+                icon={{
+                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(cartSvg),
+                  scaledSize: { width: 44, height: 44 },
+                  anchor: { x: 22, y: 22 },
                 }}
               />
             )}
@@ -684,6 +733,8 @@ function isInsideServiceArea(point, polygon) {
 }
 
 const pickupSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44"><path d="M18 0C8.059 0 0 8.059 0 18c0 12.255 16.122 24.66 17.04 25.356a1.5 1.5 0 0 0 1.92 0C19.878 42.66 36 30.255 36 18 36 8.059 27.941 0 18 0z" fill="#2d6a4f"/><circle cx="18" cy="18" r="7" fill="white"/></svg>`;
+
+const cartSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" width="44" height="44"><circle cx="22" cy="22" r="20" fill="#40916c" stroke="white" stroke-width="2"/><text x="22" y="29" font-size="20" text-anchor="middle" fill="white">🛺</text></svg>`;
 
 // Red destination pin
 const destSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44"><path d="M18 0C8.059 0 0 8.059 0 18c0 12.255 16.122 24.66 17.04 25.356a1.5 1.5 0 0 0 1.92 0C19.878 42.66 36 30.255 36 18 36 8.059 27.941 0 18 0z" fill="#e63946"/><circle cx="18" cy="18" r="7" fill="white"/></svg>`;
