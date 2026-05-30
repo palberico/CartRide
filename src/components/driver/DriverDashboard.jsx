@@ -39,6 +39,7 @@ export default function DriverDashboard() {
   const mapRef = useRef(null);
   const [mapInstance, setMapInstance] = useState(null);
   const directionsRendererRef = useRef(null);
+  const pickupRouteRendererRef = useRef(null);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const { isLoaded } = useJsApiLoader({ googleMapsApiKey: apiKey || '' });
@@ -234,14 +235,38 @@ export default function DriverDashboard() {
       clickable: false,
       map: mapInstance,
     });
-    // Init DirectionsRenderer once the map is ready
+    // Green renderer: pickup → destination (shown during active ride)
     directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
       suppressMarkers: true,
       polylineOptions: { strokeColor: '#2d6a4f', strokeWeight: 5, strokeOpacity: 0.75 },
       map: mapInstance,
     });
+    // Red renderer: driver location → pickup (shown while approaching, accepted status only)
+    pickupRouteRendererRef.current = new window.google.maps.DirectionsRenderer({
+      suppressMarkers: true,
+      polylineOptions: { strokeColor: '#e63946', strokeWeight: 4, strokeOpacity: 0.85 },
+      map: mapInstance,
+    });
     return () => { polygon.setMap(null); };
   }, [mapInstance]);
+
+  // Red approach route: driver location → pickup, only while status is 'accepted'
+  useEffect(() => {
+    const renderer = pickupRouteRendererRef.current;
+    if (!renderer) return;
+    if (activeRide?.status !== 'accepted' || !myLocation || !activeRide?.pickupLocation) {
+      renderer.setDirections({ routes: [] });
+      return;
+    }
+    new window.google.maps.DirectionsService().route({
+      origin: myLocation,
+      destination: activeRide.pickupLocation,
+      travelMode: window.google.maps.TravelMode.DRIVING,
+    }, (result, status) => {
+      if (status === 'OK') renderer.setDirections(result);
+      else renderer.setDirections({ routes: [] });
+    });
+  }, [activeRide?.status, activeRide?.pickupLocation, myLocation]);
 
   // Draw route and fit bounds when an active ride is present
   useEffect(() => {

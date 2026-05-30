@@ -49,7 +49,6 @@ export default function RiderDashboard() {
   const mapRef = useRef(null);
   const activeRideRef = useRef(null);
   const directionsRendererRef = useRef(null);
-  const driverRouteRendererRef = useRef(null);
   const mapModeRef = useRef('pickup');
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
@@ -181,24 +180,6 @@ export default function RiderDashboard() {
     });
   }, [activeRide?.status, activeRide?.pickupLocation, driverLocation]);
 
-  // Draw red approach route from driver → pickup; clear when ride starts
-  useEffect(() => {
-    const renderer = driverRouteRendererRef.current;
-    if (!renderer) return;
-    if (activeRide?.status !== 'accepted' || !driverLocation || !activeRide?.pickupLocation) {
-      renderer.setDirections({ routes: [] });
-      return;
-    }
-    const service = new window.google.maps.DirectionsService();
-    service.route({
-      origin: driverLocation,
-      destination: activeRide.pickupLocation,
-      travelMode: window.google.maps.TravelMode.DRIVING,
-    }, (result, status) => {
-      if (status === 'OK') renderer.setDirections(result);
-      else renderer.setDirections({ routes: [] });
-    });
-  }, [activeRide?.status, driverLocation, activeRide?.pickupLocation]);
 
   // Draw the Daybreak boundary polygon directly on the map instance
   useEffect(() => {
@@ -487,11 +468,6 @@ export default function RiderDashboard() {
                 polylineOptions: { strokeColor: '#2d6a4f', strokeWeight: 5, strokeOpacity: 0.75 },
                 map,
               });
-              driverRouteRendererRef.current = new window.google.maps.DirectionsRenderer({
-                suppressMarkers: true,
-                polylineOptions: { strokeColor: '#e63946', strokeWeight: 4, strokeOpacity: 0.8 },
-                map,
-              });
               // Attach click directly — reads mode + ride from refs so listener is never stale
               map.addListener('click', (e) => {
                 const ride = activeRideRef.current;
@@ -591,9 +567,7 @@ function ActiveRidePanel({ ride, onCancel, eta }) {
     accepted: {
       icon: '🛺',
       title: 'Driver on the way!',
-      desc: eta
-        ? `${ride.driverName || 'Your driver'} is about ${eta} away.`
-        : `${ride.driverName || 'Your driver'} is heading to your pickup spot.`,
+      desc: `${ride.driverName || 'Your driver'} is heading to your pickup spot.`,
       showCancel: false,
     },
     active: {
@@ -624,6 +598,14 @@ function ActiveRidePanel({ ride, onCancel, eta }) {
         <div className="ride-detail-row">
           <strong>Driver:</strong>
           <span>{ride.driverName}</span>
+        </div>
+      )}
+      {ride.status === 'accepted' && (
+        <div className="ride-detail-row">
+          <strong>ETA:</strong>
+          <span style={{ color: 'var(--green-mid)', fontWeight: 600 }}>
+            {eta ? `~${eta}` : 'Calculating…'}
+          </span>
         </div>
       )}
       <p className="text-sm text-muted mt-8">{config.desc}</p>
