@@ -73,9 +73,11 @@ export default function RiderDashboard() {
         const ride = { id: snap.docs[0].id, ...snap.docs[0].data() };
         if (ride.status === 'ending' && activeRide?.status === 'active') {
           toast.success('Ride ended! Please pay your driver.');
+          if (window.innerWidth <= 768) setSheetOpen(true);
         }
         if (ride.status === 'completed' && activeRide?.status !== 'completed') {
           toast.success('Thanks for riding with CartRide!');
+          if (window.innerWidth <= 768) setSheetOpen(true);
         }
         setActiveRide(ride);
       } else {
