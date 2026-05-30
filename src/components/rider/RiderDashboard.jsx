@@ -50,6 +50,7 @@ export default function RiderDashboard() {
   const activeRideRef = useRef(null);
   const directionsRendererRef = useRef(null);
   const mapModeRef = useRef('pickup');
+  const arrivedAlertShownRef = useRef(false);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const { isLoaded } = useJsApiLoader({ googleMapsApiKey: apiKey || '' });
@@ -180,6 +181,49 @@ export default function RiderDashboard() {
     });
   }, [activeRide?.status, activeRide?.pickupLocation, driverLocation]);
 
+
+  // Reset arrived flag whenever a new ride starts
+  useEffect(() => { arrivedAlertShownRef.current = false; }, [activeRide?.id]);
+
+  // Request Web Notification permission as soon as a driver accepts
+  useEffect(() => {
+    if (activeRide?.status === 'accepted' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, [activeRide?.status]);
+
+  // Fire arrival alert when driver is within 500 ft (~152 m) of pickup
+  useEffect(() => {
+    if (
+      activeRide?.status !== 'accepted' ||
+      !driverLocation ||
+      !activeRide?.pickupLocation ||
+      arrivedAlertShownRef.current
+    ) return;
+
+    const meters = haversineDistance(driverLocation, activeRide.pickupLocation);
+    if (meters > 152) return;
+
+    arrivedAlertShownRef.current = true;
+
+    toast('🛺 Your driver has arrived!', {
+      duration: 10000,
+      style: {
+        background: '#1b4332',
+        color: '#fff',
+        fontWeight: 700,
+        fontSize: 16,
+        padding: '16px 20px',
+      },
+    });
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('Your driver has arrived! 🛺', {
+        body: `${activeRide.driverName || 'Your driver'} is at your pickup location.`,
+        icon: '/CartRide/cart-icon.svg',
+      });
+    }
+  }, [driverLocation, activeRide?.status, activeRide?.pickupLocation, activeRide?.id]);
 
   // Draw the Daybreak boundary polygon directly on the map instance
   useEffect(() => {
@@ -698,6 +742,16 @@ async function reverseGeocodeAddress(address) {
       }
     });
   });
+}
+
+// Haversine distance between two {lat,lng} points, returns meters
+function haversineDistance(a, b) {
+  const R = 6371000;
+  const φ1 = a.lat * Math.PI / 180, φ2 = b.lat * Math.PI / 180;
+  const Δφ = (b.lat - a.lat) * Math.PI / 180;
+  const Δλ = (b.lng - a.lng) * Math.PI / 180;
+  const h = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
 // Ray casting — returns true if point {lat,lng} is inside the polygon array
