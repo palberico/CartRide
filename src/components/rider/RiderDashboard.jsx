@@ -52,6 +52,7 @@ export default function RiderDashboard() {
   const activeRideRef = useRef(null);
   const directionsRendererRef = useRef(null);
   const mapModeRef = useRef('pickup');
+  const activeCityRef = useRef(CITIES.daybreak);
   const arrivedAlertShownRef = useRef(false);
   const touchStartY = useRef(null);
 
@@ -87,6 +88,7 @@ export default function RiderDashboard() {
   // Keep stable refs so map click handler never goes stale
   useEffect(() => { activeRideRef.current = activeRide; }, [activeRide]);
   useEffect(() => { mapModeRef.current = mapMode; }, [mapMode]);
+  useEffect(() => { activeCityRef.current = activeCity; }, [activeCity]);
 
   // Fetch common locations for the destination dropdown
   useEffect(() => {
@@ -256,7 +258,10 @@ export default function RiderDashboard() {
     if (!value.trim()) return;
     const q = `${value.trim()}, ${activeCity.geocodingContext}`;
     const latLng = await reverseGeocodeAddress(q);
-    if (latLng) setDestinationPin(latLng);
+    if (latLng) {
+      setDestinationPin(latLng);
+      if (window.innerWidth <= 768) setSheetOpen(false);
+    }
   }
 
   async function useMyLocation() {
@@ -372,8 +377,22 @@ export default function RiderDashboard() {
           onTouchEnd={handleSheetTouchEnd}
         >
           <div className="sheet-handle" />
-          <h2>Request a Ride</h2>
-          <p>{activeCity.displayName} · Flat rate ${RIDE_PRICE}</p>
+          <div className="sidebar-header-row">
+            <div>
+              <h2>Request a Ride</h2>
+              <p>{activeCity.displayName} · Flat rate ${RIDE_PRICE}</p>
+            </div>
+            {/* Request Ride button visible in collapsed header on mobile when ready */}
+            {!sheetOpen && pickup && destination.trim() && showRequestForm && (
+              <button
+                className="btn btn-primary sheet-request-btn"
+                onClick={e => { e.stopPropagation(); requestRide(); }}
+                disabled={submitting}
+              >
+                {submitting ? '…' : `Ride · $${RIDE_PRICE}`}
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="sidebar-body">
@@ -393,8 +412,17 @@ export default function RiderDashboard() {
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <div className={`map-hint ${mapMode === 'pickup' ? '' : ''}`}
-                      style={{ background: mapMode === 'destination' ? '#fff3e0' : undefined, color: mapMode === 'destination' ? '#b45309' : undefined }}>
+                    <div
+                      className="map-hint"
+                      style={{
+                        background: mapMode === 'destination' ? '#fff3e0' : undefined,
+                        color: mapMode === 'destination' ? '#b45309' : undefined,
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => {
+                        if (window.innerWidth <= 768) setSheetOpen(false);
+                      }}
+                    >
                       {mapMode === 'destination' ? '👇 Now click the map to set your destination' : '👆 Click the map to set your pickup spot'}
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'center', margin: '-10px 0', position: 'relative', zIndex: 1 }}>
@@ -427,9 +455,11 @@ export default function RiderDashboard() {
                       if (!loc) return;
                       setDestination(loc.name);
                       setDestinationPin(null);
-                      // Geocode the address to get a pin + enable routing
                       reverseGeocodeAddress(loc.address).then(latLng => {
-                        if (latLng) setDestinationPin(latLng);
+                        if (latLng) {
+                          setDestinationPin(latLng);
+                          if (window.innerWidth <= 768) setSheetOpen(false);
+                        }
                       });
                     }}
                   >
@@ -549,8 +579,9 @@ export default function RiderDashboard() {
                 const ride = activeRideRef.current;
                 if (ride && !['ending', 'completed', 'archived'].includes(ride.status)) return;
                 const loc = { lat: e.latLng.lat(), lng: e.latLng.lng() };
-                if (!isInsideServiceArea(loc, activeCity.boundary)) {
-                  toast.error(`That spot is outside the ${activeCity.name} service area.`);
+                const city = activeCityRef.current;
+                if (!isInsideServiceArea(loc, city.boundary)) {
+                  toast.error(`That spot is outside the ${city.name} service area.`);
                   return;
                 }
                 const mode = mapModeRef.current;
@@ -559,11 +590,15 @@ export default function RiderDashboard() {
                   setDestination('');
                   reverseGeocode(loc).then(addr => { if (addr) setDestination(addr); }).catch(() => {});
                   setMapMode('pickup');
+                  // Destination set on mobile — close sheet, show Request button in header
+                  if (window.innerWidth <= 768) setSheetOpen(false);
                 } else {
                   setPickup(loc);
                   setPickupAddress(null);
                   reverseGeocode(loc).then(addr => setPickupAddress(addr)).catch(() => {});
                   setMapMode('destination');
+                  // Pickup set on mobile — open sheet so rider can enter destination
+                  if (window.innerWidth <= 768) setSheetOpen(true);
                 }
               });
             }}
