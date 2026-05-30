@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
-import { doc, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { doc, updateDoc, deleteField } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -18,6 +18,7 @@ export default function ProfileModal({ onClose }) {
   const [avatarFile, setAvatarFile] = useState(null);
   const [venmoQrPreview, setVenmoQrPreview] = useState(null);
   const [venmoQrFile, setVenmoQrFile] = useState(null);
+  const [removeVenmoQr, setRemoveVenmoQr] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -74,7 +75,10 @@ export default function ProfileModal({ onClose }) {
         avatarUrl = await getDownloadURL(storageRef);
       }
 
-      if (venmoQrFile) {
+      if (removeVenmoQr) {
+        try { await deleteObject(ref(storage, `venmo-qr/${user.uid}`)); } catch {}
+        venmoQrUrl = null;
+      } else if (venmoQrFile) {
         const qrRef = ref(storage, `venmo-qr/${user.uid}`);
         await uploadBytes(qrRef, venmoQrFile);
         venmoQrUrl = await getDownloadURL(qrRef);
@@ -92,7 +96,7 @@ export default function ProfileModal({ onClose }) {
           venmoHandle: form.venmoHandle.trim(),
           paypalHandle: form.paypalHandle.trim(),
           ...(avatarUrl !== null && { avatarUrl }),
-          ...(venmoQrUrl !== null && { venmoQrUrl }),
+          ...(removeVenmoQr ? { venmoQrUrl: deleteField() } : venmoQrUrl !== null ? { venmoQrUrl } : {}),
         });
       }
 
@@ -222,7 +226,7 @@ export default function ProfileModal({ onClose }) {
                       <button
                         className="btn btn-secondary btn-sm"
                         style={{ color: 'var(--danger)' }}
-                        onClick={() => { setVenmoQrPreview(null); setVenmoQrFile(null); }}
+                        onClick={() => { setVenmoQrPreview(null); setVenmoQrFile(null); setRemoveVenmoQr(true); }}
                       >
                         Remove
                       </button>

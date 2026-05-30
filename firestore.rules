@@ -17,6 +17,7 @@ service cloud.firestore {
         && request.resource.data.role in ['rider', 'driver'];
       allow update: if isAuth() && request.auth.uid == uid
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
+      allow delete: if isAuth() && request.auth.uid == uid;
     }
 
     // Drivers — drivers read/write own doc; riders read all (to see map); admin reads/writes all
@@ -28,6 +29,7 @@ service cloud.firestore {
           && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['approved']))
         || role() == 'admin'
       );
+      allow delete: if isAuth() && request.auth.uid == uid;
     }
 
     // Common locations — anyone logged in can read; only admin can write
