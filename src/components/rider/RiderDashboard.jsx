@@ -42,6 +42,7 @@ export default function RiderDashboard() {
   const [onlineDrivers, setOnlineDrivers] = useState([]);
   const [offlineAcceptingDrivers, setOfflineAcceptingDrivers] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const [driverEta, setDriverEta] = useState(null);
   const [mapCenter, setMapCenter] = useState(DAYBREAK_CENTER);
   const [mapInstance, setMapInstance] = useState(null);
   const mapRef = useRef(null);
@@ -146,6 +147,28 @@ export default function RiderDashboard() {
     return unsub;
   }, []);
 
+  // Calculate driver ETA when ride is accepted and driver has a live location
+  useEffect(() => {
+    if (activeRide?.status !== 'accepted' || !activeRide?.pickupLocation) {
+      setDriverEta(null);
+      return;
+    }
+    const driver = onlineDrivers.find(d => d.id === activeRide.driverId);
+    if (!driver?.location || !window.google?.maps?.DistanceMatrixService) return;
+
+    const service = new window.google.maps.DistanceMatrixService();
+    service.getDistanceMatrix({
+      origins: [driver.location],
+      destinations: [activeRide.pickupLocation],
+      travelMode: window.google.maps.TravelMode.DRIVING,
+    }, (response, status) => {
+      if (status === 'OK') {
+        const el = response.rows[0]?.elements[0];
+        if (el?.status === 'OK') setDriverEta(el.duration.text);
+      }
+    });
+  }, [activeRide?.status, activeRide?.driverId, activeRide?.pickupLocation, onlineDrivers]);
+
   // Draw the Daybreak boundary polygon directly on the map instance
   useEffect(() => {
     if (!mapInstance) return;
@@ -162,6 +185,13 @@ export default function RiderDashboard() {
     return () => polygon.setMap(null);
   }, [mapInstance]);
 
+
+  async function geocodeDestination(value) {
+    if (!value.trim()) return;
+    const query = `${value.trim()}, South Jordan, Utah`;
+    const latLng = await reverseGeocodeAddress(query);
+    if (latLng) setDestinationPin(latLng);
+  }
 
   async function useMyLocation() {
     if (!navigator.geolocation) return toast.error('Geolocation not supported by your browser.');
@@ -259,7 +289,7 @@ export default function RiderDashboard() {
         </div>
 
         <div className="sidebar-body">
-          {hasActiveRide && <ActiveRidePanel ride={activeRide} onCancel={cancelRide} />}
+          {hasActiveRide && <ActiveRidePanel ride={activeRide} onCancel={cancelRide} eta={driverEta} />}
 
           {isPaymentStatus && (
             <CompletedRidePanel ride={activeRide} onDone={dismissRide} />
@@ -332,9 +362,11 @@ export default function RiderDashboard() {
                   <div style={{ display: 'flex', gap: 8 }}>
                     <input
                       type="text"
-                      placeholder="Type address or click map…"
+                      placeholder="Street or place in South Jordan…"
                       value={destination}
                       onChange={e => { setDestination(e.target.value); setDestinationPin(null); }}
+                      onBlur={e => geocodeDestination(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') geocodeDestination(e.target.value); }}
                       style={{ flex: 1 }}
                     />
                     <button
@@ -499,7 +531,7 @@ export default function RiderDashboard() {
   );
 }
 
-function ActiveRidePanel({ ride, onCancel }) {
+function ActiveRidePanel({ ride, onCancel, eta }) {
   const statusConfig = {
     pending: {
       icon: '🔍',
@@ -510,7 +542,9 @@ function ActiveRidePanel({ ride, onCancel }) {
     accepted: {
       icon: '🛺',
       title: 'Driver on the way!',
-      desc: `${ride.driverName || 'Your driver'} is heading to your pickup spot.`,
+      desc: eta
+        ? `${ride.driverName || 'Your driver'} is about ${eta} away.`
+        : `${ride.driverName || 'Your driver'} is heading to your pickup spot.`,
       showCancel: false,
     },
     active: {
