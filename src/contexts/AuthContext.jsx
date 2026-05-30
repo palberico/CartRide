@@ -73,6 +73,8 @@ export function AuthProvider({ children }) {
     // using the Admin SDK — no client-side auth token concerns.
     const deleteAccountFn = httpsCallable(functions, 'deleteAccount');
     await deleteAccountFn();
+    // Sign out the local session so onAuthStateChanged fires and redirects to login
+    await signOut(auth);
   }
 
   useEffect(() => {
