@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { CITIES, CITY_LIST } from '../../constants/cities';
 import {
   GoogleMap,
@@ -47,11 +47,13 @@ export default function RiderDashboard() {
   const [activeCity, setActiveCity] = useState(CITIES.daybreak); // default until GPS resolves
   const [mapCenter, setMapCenter] = useState(CITIES.daybreak.center);
   const [mapInstance, setMapInstance] = useState(null);
+  const [sheetOpen, setSheetOpen] = useState(true);
   const mapRef = useRef(null);
   const activeRideRef = useRef(null);
   const directionsRendererRef = useRef(null);
   const mapModeRef = useRef('pickup');
   const arrivedAlertShownRef = useRef(false);
+  const touchStartY = useRef(null);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const { isLoaded } = useJsApiLoader({ googleMapsApiKey: apiKey || '' });
@@ -344,14 +346,32 @@ export default function RiderDashboard() {
     setMapMode('pickup');
   }
 
+  const handleSheetTouchStart = useCallback((e) => {
+    touchStartY.current = e.touches[0].clientY;
+  }, []);
+
+  const handleSheetTouchEnd = useCallback((e) => {
+    if (touchStartY.current === null) return;
+    const delta = e.changedTouches[0].clientY - touchStartY.current;
+    if (delta > 40)  setSheetOpen(false); // swipe down → collapse
+    if (delta < -40) setSheetOpen(true);  // swipe up → expand
+    touchStartY.current = null;
+  }, []);
+
   const isPaymentStatus = ['ending', 'completed'].includes(activeRide?.status);
   const hasActiveRide = activeRide && !isPaymentStatus;
   const showRequestForm = !hasActiveRide && !isPaymentStatus;
 
   return (
     <div className="dashboard has-sidebar">
-      <div className="sidebar">
-        <div className="sidebar-header">
+      <div className={`sidebar${sheetOpen ? '' : ' sheet-collapsed'}`}>
+        <div
+          className="sidebar-header"
+          onClick={() => setSheetOpen(v => !v)}
+          onTouchStart={handleSheetTouchStart}
+          onTouchEnd={handleSheetTouchEnd}
+        >
+          <div className="sheet-handle" />
           <h2>Request a Ride</h2>
           <p>{activeCity.displayName} · Flat rate ${RIDE_PRICE}</p>
         </div>

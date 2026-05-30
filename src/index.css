@@ -106,6 +106,81 @@ body {
   background: rgba(255,255,255,0.1);
 }
 
+/* Hamburger — hidden on desktop, shown on mobile */
+.navbar-desktop { display: flex; align-items: center; gap: 16px; }
+.navbar-mobile  { display: none; position: relative; }
+
+.hamburger-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: background 0.2s;
+}
+.hamburger-btn:hover { background: rgba(255,255,255,0.1); }
+
+.nav-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  min-width: 180px;
+  overflow: hidden;
+  z-index: 200;
+  animation: fadeDown 0.15s ease;
+}
+
+@keyframes fadeDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.nav-dropdown-user {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.nav-dropdown-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
+.nav-dropdown-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-800);
+  padding: 0;
+  width: 100%;
+  text-align: left;
+}
+
+.nav-dropdown-signout {
+  width: 100%;
+  padding: 14px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--danger);
+  font-weight: 600;
+  text-align: left;
+  transition: background 0.15s;
+}
+.nav-dropdown-signout:hover { background: var(--danger-light); }
+
 /* ─── Auth Pages ─────────────────────────────────── */
 .auth-page {
   min-height: 100vh;
@@ -1118,17 +1193,78 @@ body {
   100% { transform: scale(1);   opacity: 0; }
 }
 
+/* ─── Sheet handle (rider bottom sheet) ─────────── */
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  background: var(--gray-200);
+  border-radius: 2px;
+  margin: 10px auto 4px;
+  flex-shrink: 0;
+}
+
 /* ─── Responsive ─────────────────────────────────── */
 @media (max-width: 768px) {
+  /* Swap desktop/mobile nav */
+  .navbar-desktop { display: none; }
+  .navbar-mobile  { display: block; }
+
+  /* ── Rider bottom-sheet layout ── */
   .dashboard.has-sidebar {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    display: block;
+    height: calc(100vh - 60px);
+    position: relative;
+    overflow: hidden;
   }
-  .sidebar {
-    height: 50vh;
+
+  /* Map fills the full screen behind the sheet */
+  .dashboard.has-sidebar .map-container {
+    position: fixed;
+    top: 60px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+  }
+
+  /* Bottom sheet */
+  .dashboard.has-sidebar .sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 80vh;
+    z-index: 10;
+    border-radius: 20px 20px 0 0;
     border-right: none;
-    border-bottom: 1px solid var(--gray-200);
+    border-bottom: none;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.15);
+    overflow: hidden;
+    transform: translateY(0);
+    transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
   }
+
+  /* Collapsed: only the header strip is visible */
+  .dashboard.has-sidebar .sidebar.sheet-collapsed {
+    transform: translateY(calc(80vh - 80px));
+  }
+
+  .dashboard.has-sidebar .sidebar-header {
+    cursor: pointer;
+    user-select: none;
+    border-radius: 20px 20px 0 0;
+    padding: 0 20px 14px;
+  }
+
+  /* Allow body to scroll independently within the sheet */
+  .dashboard.has-sidebar .sidebar-body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    max-height: calc(80vh - 80px);
+    padding-bottom: 32px;
+  }
+
+  /* Auth / misc */
   .auth-card {
     padding: 28px 20px;
   }
