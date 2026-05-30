@@ -382,15 +382,25 @@ export default function RiderDashboard() {
               <h2>Request a Ride</h2>
               <p>{activeCity.displayName} · Flat rate ${RIDE_PRICE}</p>
             </div>
-            {/* Request Ride button visible in collapsed header on mobile when ready */}
-            {!sheetOpen && pickup && destination.trim() && showRequestForm && (
-              <button
-                className="btn btn-primary sheet-request-btn"
-                onClick={e => { e.stopPropagation(); requestRide(); }}
-                disabled={submitting}
-              >
-                {submitting ? '…' : `Ride · $${RIDE_PRICE}`}
-              </button>
+            {/* Inline action button in collapsed header */}
+            {!sheetOpen && (
+              hasActiveRide && activeRide?.status === 'pending' ? (
+                <button
+                  className="btn btn-secondary sheet-request-btn"
+                  style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                  onClick={e => { e.stopPropagation(); cancelRide(); }}
+                >
+                  Cancel ride
+                </button>
+              ) : pickup && destination.trim() && showRequestForm ? (
+                <button
+                  className="btn btn-primary sheet-request-btn"
+                  onClick={e => { e.stopPropagation(); requestRide(); }}
+                  disabled={submitting}
+                >
+                  {submitting ? '…' : `Ride · $${RIDE_PRICE}`}
+                </button>
+              ) : null
             )}
           </div>
         </div>
@@ -470,32 +480,44 @@ export default function RiderDashboard() {
                   </select>
                 )}
 
-                {/* Destination pin display or text input */}
+                {/* Map tap button — same style as pickup hint */}
+                {!destinationPin && (
+                  <div
+                    className="map-hint"
+                    style={{
+                      cursor: 'pointer',
+                      marginBottom: 8,
+                      background: mapMode === 'destination' ? '#fff3e0' : undefined,
+                      color: mapMode === 'destination' ? '#b45309' : undefined,
+                    }}
+                    onClick={() => {
+                      if (mapMode === 'destination') {
+                        setMapMode('pickup');
+                      } else {
+                        setMapMode('destination');
+                        if (window.innerWidth <= 768) setSheetOpen(false);
+                      }
+                    }}
+                  >
+                    {mapMode === 'destination' ? '✕ Cancel map selection' : '🗺 Click the map to set destination'}
+                  </div>
+                )}
+
+                {/* Destination display or text input */}
                 {destinationPin ? (
                   <div className="pickup-display">
                     <span>🏁 {destination || `${destinationPin.lat.toFixed(5)}, ${destinationPin.lng.toFixed(5)}`}</span>
-                    <button onClick={() => { setDestinationPin(null); setDestination(''); setMapMode('destination'); }} title="Clear destination">✕</button>
+                    <button onClick={() => { setDestinationPin(null); setDestination(''); setMapMode('pickup'); }} title="Clear destination">✕</button>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <input
-                      type="text"
-                      placeholder="Street or place in South Jordan…"
-                      value={destination}
-                      onChange={e => { setDestination(e.target.value); setDestinationPin(null); }}
-                      onBlur={e => geocodeDestination(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') geocodeDestination(e.target.value); }}
-                      style={{ flex: 1 }}
-                    />
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
-                      onClick={() => setMapMode(mapMode === 'destination' ? 'pickup' : 'destination')}
-                      title="Click map to set destination"
-                    >
-                      {mapMode === 'destination' ? '✕ Cancel' : '🗺 Pin'}
-                    </button>
-                  </div>
+                  <input
+                    type="text"
+                    placeholder="Street or place in South Jordan…"
+                    value={destination}
+                    onChange={e => { setDestination(e.target.value); setDestinationPin(null); }}
+                    onBlur={e => geocodeDestination(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') geocodeDestination(e.target.value); }}
+                  />
                 )}
               </div>
 
