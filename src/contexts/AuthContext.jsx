@@ -46,6 +46,9 @@ export function AuthProvider({ children }) {
       });
     }
 
+    // Set profile immediately so App.jsx never sees user=logged-in + userProfile=null
+    setUserProfile({ uid, name, email, role });
+
     return cred;
   }
 

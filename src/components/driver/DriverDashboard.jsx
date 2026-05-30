@@ -14,6 +14,7 @@ import {
   limit,
   serverTimestamp,
   getDoc,
+  runTransaction,
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
@@ -168,18 +169,32 @@ export default function DriverDashboard() {
     try {
       const driverSnap = await getDoc(doc(db, 'drivers', userProfile.uid));
       const driverData = driverSnap.data();
-      await updateDoc(doc(db, 'rides', ride.id), {
-        driverId: userProfile.uid,
-        driverName: userProfile.name,
-        driverVenmo: driverData.venmoHandle || '',
-        driverPaypal: driverData.paypalHandle || '',
-        driverVenmoQrUrl: driverData.venmoQrUrl || '',
-        status: 'accepted',
-        updatedAt: serverTimestamp(),
+      const rideRef = doc(db, 'rides', ride.id);
+
+      await runTransaction(db, async (transaction) => {
+        const rideSnap = await transaction.get(rideRef);
+        if (!rideSnap.exists()) throw new Error('gone');
+        const data = rideSnap.data();
+        if (data.status !== 'pending' || data.driverId !== null) throw new Error('taken');
+
+        transaction.update(rideRef, {
+          driverId: userProfile.uid,
+          driverName: userProfile.name,
+          driverVenmo: driverData.venmoHandle || '',
+          driverPaypal: driverData.paypalHandle || '',
+          driverVenmoQrUrl: driverData.venmoQrUrl || '',
+          status: 'accepted',
+          updatedAt: serverTimestamp(),
+        });
       });
+
       toast.success(`Accepted ride for ${ride.riderName}!`);
-    } catch {
-      toast.error('Could not accept this ride. It may have been taken.');
+    } catch (err) {
+      toast.error(
+        err.message === 'taken' ? 'This ride was just accepted by another driver.' :
+        err.message === 'gone'  ? 'This ride no longer exists.' :
+        'Could not accept this ride. Try again.'
+      );
     }
   }
 

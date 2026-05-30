@@ -2,20 +2,19 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: is the requester logged in?
     function isAuth() {
       return request.auth != null;
     }
 
-    // Helper: get the caller's role from their user doc
     function role() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
-    // Users — can read own doc; only backend (admin SDK) writes role
+    // Users — can read own doc; role is locked to rider/driver on create; cannot self-elevate
     match /users/{uid} {
       allow read: if isAuth() && request.auth.uid == uid;
-      allow create: if isAuth() && request.auth.uid == uid;
+      allow create: if isAuth() && request.auth.uid == uid
+        && request.resource.data.role in ['rider', 'driver'];
       allow update: if isAuth() && request.auth.uid == uid
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
     }
@@ -24,10 +23,9 @@ service cloud.firestore {
     match /drivers/{uid} {
       allow read: if isAuth();
       allow create: if isAuth() && request.auth.uid == uid;
-      // Drivers can update their own location/online status but NOT approved field
       allow update: if isAuth() && (
-        (request.auth.uid == uid &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['approved']))
+        (request.auth.uid == uid
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['approved']))
         || role() == 'admin'
       );
     }
@@ -38,21 +36,43 @@ service cloud.firestore {
       allow write: if isAuth() && role() == 'admin';
     }
 
-    // Rides — riders create; assigned driver + rider read; driver can update status
+    // Rides
     match /rides/{rideId} {
+      // Only riders can create rides, and only for themselves
       allow create: if isAuth() && role() == 'rider'
         && request.resource.data.riderId == request.auth.uid;
 
+      // Rider sees own rides; assigned driver sees their rides; all drivers see pending rides; admin sees all
       allow read: if isAuth() && (
-        resource.data.riderId == request.auth.uid ||
-        resource.data.driverId == request.auth.uid ||
-        role() == 'driver' ||   // drivers need to see pending rides
-        role() == 'admin'
+        resource.data.riderId == request.auth.uid
+        || resource.data.driverId == request.auth.uid
+        || role() == 'driver'
+        || role() == 'admin'
       );
 
       allow update: if isAuth() && (
-        resource.data.riderId == request.auth.uid ||   // rider can cancel
-        role() == 'driver' ||
+        // Rider can cancel their own pending ride, or archive their completed ride
+        (resource.data.riderId == request.auth.uid
+          && (
+            (resource.data.status == 'pending' && request.resource.data.status == 'cancelled')
+            || (resource.data.status == 'completed' && request.resource.data.status == 'archived')
+          )
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'updatedAt'])
+        )
+        ||
+        // Any approved driver can accept an unassigned pending ride
+        (role() == 'driver'
+          && resource.data.status == 'pending'
+          && resource.data.driverId == null
+          && request.resource.data.status == 'accepted'
+        )
+        ||
+        // The assigned driver can advance the ride through valid statuses
+        (resource.data.driverId == request.auth.uid
+          && request.resource.data.status in ['active', 'ending', 'completed']
+        )
+        ||
         role() == 'admin'
       );
     }
