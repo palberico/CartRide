@@ -146,17 +146,15 @@ export default function RiderDashboard() {
     }
   }, [activeRide?.id]);
 
-  // Watch approved drivers in the detected city only
+  // Watch approved drivers, filter by city client-side so legacy drivers
+  // without a city field (defaulting to 'daybreak') are included
   useEffect(() => {
-    const q = query(
-      collection(db, 'drivers'),
-      where('approved', '==', true),
-      where('city', '==', activeCity.id)
-    );
+    const q = query(collection(db, 'drivers'), where('approved', '==', true));
     const unsub = onSnapshot(q, (snap) => {
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setOnlineDrivers(all.filter(d => d.online && d.location));
-      setOfflineAcceptingDrivers(all.filter(d => !d.online && d.acceptingOffline));
+      const cityDrivers = all.filter(d => (d.city || 'daybreak') === activeCity.id);
+      setOnlineDrivers(cityDrivers.filter(d => d.online && d.location));
+      setOfflineAcceptingDrivers(cityDrivers.filter(d => !d.online && d.acceptingOffline));
     });
     return unsub;
   }, [activeCity.id]);
