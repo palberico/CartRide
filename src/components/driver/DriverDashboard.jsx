@@ -178,6 +178,7 @@ export default function DriverDashboard() {
       });
 
       toast.success(`Accepted ride for ${ride.riderName}!`);
+      setSheetOpen(false); // reveal map so driver can navigate to pickup
     } catch (err) {
       toast.error(
         err.message === 'taken' ? 'This ride was just accepted by another driver.' :
@@ -230,11 +231,9 @@ export default function DriverDashboard() {
     if (pendingRides.length > 0) setSheetOpen(true);
   }, [pendingRides.length]);
 
-  // Auto-open sheet when driver accepts a ride or ride ends (needs action)
+  // Auto-open sheet only when the ride ends — driver needs to show payment QR
   useEffect(() => {
-    if (activeRide?.status === 'accepted' || activeRide?.status === 'ending') {
-      setSheetOpen(true);
-    }
+    if (activeRide?.status === 'ending') setSheetOpen(true);
   }, [activeRide?.status]);
 
   function handleSheetTouchStart(e) {
@@ -448,11 +447,10 @@ export default function DriverDashboard() {
           <div className="divider" />
 
           {/* Active ride */}
-          {activeRide && (
+          {activeRide && activeRide.status !== 'ending' && (
             <div>
               <div className="card-title">Active ride</div>
               <div className="ride-request-card">
-                <h3>🛺 Ride in progress</h3>
                 <div className="ride-detail-row">
                   <strong>Rider:</strong>
                   <span>{activeRide.riderName}</span>
@@ -462,55 +460,62 @@ export default function DriverDashboard() {
                   <span>{activeRide.pickupAddress || `${activeRide.pickupLocation?.lat?.toFixed(5)}, ${activeRide.pickupLocation?.lng?.toFixed(5)}`}</span>
                 </div>
                 <div className="ride-detail-row">
-                  <strong>Destination:</strong>
+                  <strong>To:</strong>
                   <span>{activeRide.dropoffAddress}</span>
                 </div>
-                <div className="ride-detail-row">
-                  <strong>Collect:</strong>
-                  <span>${activeRide.price} via Venmo/PayPal/cash</span>
-                </div>
-                {activeRide.status === 'ending' && (
-                  <div style={{ margin: '12px 0 8px', textAlign: 'center' }}>
-                    <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--green-dark)', marginBottom: 8 }}>
-                      Show your rider to pay
-                    </p>
-                    {driverDoc.venmoQrUrl ? (
-                      <img
-                        src={driverDoc.venmoQrUrl}
-                        alt="Venmo QR"
-                        style={{
-                          width: '100%', maxWidth: 220, aspectRatio: '1',
-                          objectFit: 'contain', borderRadius: 10,
-                          border: '1.5px solid var(--gray-200)', background: '#fff',
-                          padding: 8, display: 'block', margin: '0 auto',
-                        }}
-                      />
-                    ) : (
-                      <div style={{ fontSize: 13, color: 'var(--gray-600)', padding: '8px 0' }}>
-                        {driverDoc.venmoHandle && <div>Venmo: <strong>{driverDoc.venmoHandle}</strong></div>}
-                        {driverDoc.paypalHandle && <div>PayPal: <strong>{driverDoc.paypalHandle}</strong></div>}
-                      </div>
-                    )}
-                  </div>
-                )}
                 <div className="ride-actions">
                   {activeRide.status === 'accepted' && (
-                    <button className="btn btn-primary" onClick={startRide}>
-                      ▶ Start ride
-                    </button>
+                    <button className="btn btn-primary" onClick={startRide}>▶ Start ride</button>
                   )}
                   {activeRide.status === 'active' && (
-                    <button className="btn btn-warning" onClick={endRide} style={{ background: '#f4a261', color: '#fff' }}>
+                    <button className="btn" style={{ background: '#f4a261', color: '#fff', width: '100%' }} onClick={endRide}>
                       🏁 End ride
-                    </button>
-                  )}
-                  {activeRide.status === 'ending' && (
-                    <button className="btn btn-success" onClick={completeRide}>
-                      ✓ Mark as complete
                     </button>
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Payment collection card — shown when driver taps End ride */}
+          {activeRide?.status === 'ending' && (
+            <div>
+              <div className="payment-card">
+                <p className="payment-label">Collect from {activeRide.riderName}</p>
+                <p className="amount">${activeRide.price}</p>
+                {driverDoc.venmoQrUrl ? (
+                  <div style={{ marginTop: 16 }}>
+                    <p className="payment-label" style={{ marginBottom: 10 }}>Your Venmo QR — show rider to scan</p>
+                    <img
+                      src={driverDoc.venmoQrUrl}
+                      alt="Venmo QR"
+                      style={{
+                        width: 180, height: 180, objectFit: 'contain',
+                        background: '#fff', borderRadius: 10, padding: 8,
+                        display: 'block', margin: '0 auto',
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 12 }}>
+                    {driverDoc.venmoHandle && (
+                      <div>
+                        <p className="payment-label">Venmo</p>
+                        <span className="venmo-handle">{driverDoc.venmoHandle}</span>
+                      </div>
+                    )}
+                    {driverDoc.paypalHandle && (
+                      <div style={{ marginTop: 8 }}>
+                        <p className="payment-label">PayPal</p>
+                        <span className="venmo-handle">{driverDoc.paypalHandle}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <button className="btn btn-success w-full mt-12" onClick={completeRide}>
+                ✓ Mark as complete
+              </button>
             </div>
           )}
 
