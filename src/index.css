@@ -167,6 +167,21 @@ body {
   text-align: left;
 }
 
+.nav-dropdown-settings {
+  width: 100%;
+  padding: 14px 16px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--gray-200);
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--gray-800);
+  font-weight: 600;
+  text-align: left;
+  transition: background 0.15s;
+}
+.nav-dropdown-settings:hover { background: var(--gray-100); }
+
 .nav-dropdown-signout {
   width: 100%;
   padding: 14px 16px;

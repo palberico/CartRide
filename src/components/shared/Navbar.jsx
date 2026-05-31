@@ -1,17 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import ProfileModal from '../driver/ProfileModal';
+import DriverSettingsModal from '../driver/DriverSettingsModal';
 import toast from 'react-hot-toast';
 
 export default function Navbar() {
   const { userProfile, logout } = useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const isDriver = userProfile?.role === 'driver';
   const isRider  = userProfile?.role === 'rider';
 
-  // Close menu when clicking outside
   useEffect(() => {
     function handleClick(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
@@ -31,6 +32,16 @@ export default function Navbar() {
     }
   }
 
+  function openSettings() {
+    setMenuOpen(false);
+    setSettingsOpen(true);
+  }
+
+  function openProfile() {
+    setMenuOpen(false);
+    setProfileOpen(true);
+  }
+
   return (
     <>
       <nav className="navbar">
@@ -45,11 +56,7 @@ export default function Navbar() {
             {userProfile && (
               <>
                 {isDriver ? (
-                  <button
-                    className="navbar-name-btn"
-                    onClick={() => setProfileOpen(true)}
-                    title="Edit profile"
-                  >
+                  <button className="navbar-name-btn" onClick={openProfile} title="Edit profile">
                     {userProfile.avatarUrl ? (
                       <img src={userProfile.avatarUrl} alt="" className="navbar-avatar" />
                     ) : (
@@ -62,11 +69,13 @@ export default function Navbar() {
                 ) : (
                   <span className="navbar-user">{userProfile.name}</span>
                 )}
-                {/* Show role badge for driver and admin, not for rider */}
                 {!isRider && (
                   <span className="navbar-role">
                     {userProfile.role === 'driver' ? 'Driver' : 'Admin'}
                   </span>
+                )}
+                {isDriver && (
+                  <button className="btn-logout" onClick={openSettings}>Settings</button>
                 )}
               </>
             )}
@@ -92,10 +101,7 @@ export default function Navbar() {
                 {userProfile && (
                   <div className="nav-dropdown-user">
                     {isDriver ? (
-                      <button
-                        className="nav-dropdown-profile"
-                        onClick={() => { setMenuOpen(false); setProfileOpen(true); }}
-                      >
+                      <button className="nav-dropdown-profile" onClick={openProfile}>
                         {userProfile.avatarUrl ? (
                           <img src={userProfile.avatarUrl} alt="" className="navbar-avatar" />
                         ) : (
@@ -110,6 +116,11 @@ export default function Navbar() {
                     )}
                   </div>
                 )}
+                {isDriver && (
+                  <button className="nav-dropdown-settings" onClick={openSettings}>
+                    ⚙️ Settings
+                  </button>
+                )}
                 <button className="nav-dropdown-signout" onClick={handleLogout}>
                   Sign out
                 </button>
@@ -121,6 +132,9 @@ export default function Navbar() {
 
       {isDriver && profileOpen && (
         <ProfileModal onClose={() => setProfileOpen(false)} />
+      )}
+      {isDriver && settingsOpen && (
+        <DriverSettingsModal onClose={() => setSettingsOpen(false)} />
       )}
     </>
   );
